@@ -67,6 +67,7 @@ salasel-extension/
 │   ├── popup.js             # Reads/writes chrome.storage.sync, renders toggle state
 │   ├── popup.css            # Popup styling
 │   ├── storage.js           # Storage keys, defaults, get/set helpers (shared)
+│   ├── i18n.js              # UI translation dictionary + helpers (ar default, en)
 │   └── styles/
 │       └── hide-rules.js    # Map of feature key -> CSS selector(s) to hide
 ├── public/
@@ -127,12 +128,29 @@ enabled, the feed is replaced with a clean empty page (`empty-home.html` content
 of just hiding the feed grid. This avoids leaving an awkward blank scaffold and gives a
 deliberate "clean slate" landing experience.
 
+### UI localization (i18n)
+
+The popup and the homepage placeholder are localized. UI language is a stored preference
+(`language` key), **defaulting to Arabic (`ar`)**, with English (`en`) selectable from a
+switcher in the popup footer.
+
+Why a custom dictionary instead of `chrome.i18n`:
+
+- `chrome.i18n` derives language from the browser locale and can't be switched at runtime
+  by the user. We need an in-app, user-controlled switch, so translations live in a small
+  `i18n.js` dictionary (`t(lang, key)` with `{placeholder}` interpolation).
+- Arabic is RTL: the popup sets `dir="rtl"` and uses CSS logical properties so layout
+  mirrors correctly. The homepage placeholder also sets its `dir` from the language.
+
+This is **UI localization only** — it does not translate YouTube content or subtitles
+(see Deferred Features).
+
 ### Per-element toggle storage schema
 
 Each distraction is a **separate key** in `chrome.storage.sync` so toggles are independent
 and partial updates don't clobber each other.
 
-Storage keys (all boolean, `true` = element is hidden):
+Storage keys (toggles are boolean, `true` = element is hidden):
 
 ```js
 {
@@ -141,7 +159,8 @@ Storage keys (all boolean, `true` = element is hidden):
   hideEndScreenCards:        false,  // end screen cards & annotations
   hideShortsShelf:           false,  // shorts shelf (home + search)
   hideComments:              false,  // comments section
-  hideHomepageFeed:          false   // homepage feed -> empty page
+  hideHomepageFeed:          false,  // homepage feed -> empty page
+  language:                  'ar'    // UI language: 'ar' (default) or 'en'
 }
 ```
 
@@ -174,9 +193,11 @@ is no flash of distracting content where possible.
 - **Progress tracking** — watch/learning analytics is a meaningfully larger feature with
   its own storage, UI, and privacy considerations. It belongs to the Salasel app's domain
   more than the distraction-blocker, so it waits until the core extension is solid.
-- **Translated subtitles** — requires a translation pipeline and likely network/API access,
-  expanding the permission surface and complexity well beyond "hide distractions." Deferred
-  until there's a clear product need and a privacy-safe approach.
+- **Translated subtitles** — translating actual YouTube video captions requires a
+  translation pipeline and likely network/API access, expanding the permission surface and
+  complexity well beyond "hide distractions." Deferred until there's a clear product need
+  and a privacy-safe approach. Note this is separate from **UI localization**, which is
+  already implemented (Arabic/English popup + placeholder).
 
 Both are noted here so the architecture (single content script, storage-driven toggles)
 stays simple now and we don't over-engineer for features that aren't committed.

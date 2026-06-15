@@ -12,20 +12,30 @@ const STORAGE_KEYS = {
   shortsShelf:           'hideShortsShelf',
   comments:              'hideComments',
   homepageFeed:          'hideHomepageFeed',
+  language:              'language',
 };
 
 /**
- * Default values — all OFF (false = element visible).
- * New keys added in future versions will also need a default here.
+ * Boolean toggle keys only (the distraction elements). Kept separate from the
+ * non-boolean `language` preference so iteration over toggles stays clean.
  * @type {Record<string, boolean>}
  */
-const DEFAULTS = {
+const TOGGLE_DEFAULTS = {
   hideRecommendationSidebar: false,
   hideUpNextAutoplay:        false,
   hideEndScreenCards:        false,
   hideShortsShelf:           false,
   hideComments:              false,
   hideHomepageFeed:          false,
+};
+
+/**
+ * All default values. Toggles default OFF; UI language defaults to Arabic.
+ * @type {Record<string, boolean|string>}
+ */
+const DEFAULTS = {
+  ...TOGGLE_DEFAULTS,
+  language: 'ar',
 };
 
 /**

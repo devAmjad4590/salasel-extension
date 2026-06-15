@@ -23,6 +23,7 @@
       "matches": ["*://*.youtube.com/*"],
       "js": [
         "src/storage.js",
+        "src/i18n.js",
         "src/styles/hide-rules.js",
         "src/content.js"
       ],
