@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Salasel Extension</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+
+  <header class="header">
+    <!-- Inline SVG logo: simple play-button mark -->
+    <svg class="header-logo" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <rect width="20" height="20" rx="4" fill="#ff4444"/>
+      <path d="M8 6l6 4-6 4V6z" fill="#fff"/>
+    </svg>
+    <h1>Salasel</h1>
+    <span class="header-sub" id="status-badge">Loading…</span>
+  </header>
+
+  <ul class="toggle-list" id="toggle-list">
+
+    <li class="toggle-item">
+      <label class="toggle-label" for="toggle-sidebar">
+        <span class="name">Recommendation sidebar</span>
+        <span class="desc">Hides suggested videos panel on watch pages</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" id="toggle-sidebar" data-key="hideRecommendationSidebar" />
+        <span class="slider" role="switch" aria-labelledby="toggle-sidebar"></span>
+      </label>
+    </li>
+
+    <li class="toggle-item">
+      <label class="toggle-label" for="toggle-upnext">
+        <span class="name">Up next / autoplay</span>
+        <span class="desc">Hides the autoplay countdown and next-video card</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" id="toggle-upnext" data-key="hideUpNextAutoplay" />
+        <span class="slider" role="switch" aria-labelledby="toggle-upnext"></span>
+      </label>
+    </li>
+
+    <li class="toggle-item">
+      <label class="toggle-label" for="toggle-endscreen">
+        <span class="name">End screen cards &amp; annotations</span>
+        <span class="desc">Hides overlay cards and annotations at end of videos</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" id="toggle-endscreen" data-key="hideEndScreenCards" />
+        <span class="slider" role="switch" aria-labelledby="toggle-endscreen"></span>
+      </label>
+    </li>
+
+    <li class="toggle-item">
+      <label class="toggle-label" for="toggle-shorts">
+        <span class="name">Shorts shelf</span>
+        <span class="desc">Removes Shorts rows from homepage and search results</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" id="toggle-shorts" data-key="hideShortsShelf" />
+        <span class="slider" role="switch" aria-labelledby="toggle-shorts"></span>
+      </label>
+    </li>
+
+    <li class="toggle-item">
+      <label class="toggle-label" for="toggle-comments">
+        <span class="name">Comments section</span>
+        <span class="desc">Hides the entire comments thread below videos</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" id="toggle-comments" data-key="hideComments" />
+        <span class="slider" role="switch" aria-labelledby="toggle-comments"></span>
+      </label>
+    </li>
+
+    <li class="toggle-item">
+      <label class="toggle-label" for="toggle-home">
+        <span class="name">Homepage feed</span>
+        <span class="desc">Replaces youtube.com homepage with a clean empty page</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" id="toggle-home" data-key="hideHomepageFeed" />
+        <span class="slider" role="switch" aria-labelledby="toggle-home"></span>
+      </label>
+    </li>
+
+  </ul>
+
+  <footer class="footer">
+    Part of <a href="https://salasel.app" target="_blank" rel="noopener noreferrer">Salasel</a>
+  </footer>
+
+  <!-- Load storage helpers first, then popup logic -->
+  <script src="storage.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

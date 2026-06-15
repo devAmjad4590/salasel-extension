@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    /* This markup is injected into the YouTube page DOM, not rendered as a standalone
+       page. Styles here are scoped to the #salasel-empty-home container. */
+    #salasel-empty-home {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 60vh;
+      padding: 48px 24px;
+      text-align: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #aaa;
+      user-select: none;
+    }
+
+    #salasel-empty-home .icon {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 16px;
+      opacity: 0.4;
+    }
+
+    #salasel-empty-home .title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #666;
+      margin-bottom: 8px;
+    }
+
+    #salasel-empty-home .subtitle {
+      font-size: 14px;
+      line-height: 1.6;
+      max-width: 320px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <!--
+    The content script reads the #salasel-empty-home element from this document
+    and injects it into the YouTube homepage feed container.
+  -->
+  <div id="salasel-empty-home">
+    <svg class="icon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <rect width="48" height="48" rx="10" fill="#ff4444" opacity="0.15"/>
+      <path d="M20 16l12 8-12 8V16z" fill="#ff4444" opacity="0.6"/>
+    </svg>
+    <p class="title">Nothing to see here</p>
+    <p class="subtitle">
+      Homepage feed is hidden by Salasel.<br/>
+      Search for something or open your playlists.
+    </p>
+  </div>
+</body>
+</html>
