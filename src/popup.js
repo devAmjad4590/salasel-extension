@@ -1,68 +1,117 @@
 /**
- * popup.js — reads preferences from chrome.storage.sync, renders toggle state,
- * and writes individual key changes back on user interaction.
+ * popup.js — reads preferences from chrome.storage.sync, renders toggle state
+ * and the UI language, and writes individual key changes back on interaction.
  *
- * Depends on storage.js being loaded first (provides getPrefs, setPref, DEFAULTS).
+ * Depends on storage.js (getPrefs, setPref, DEFAULTS, TOGGLE_DEFAULTS) and
+ * i18n.js (t, isRTL, I18N_DEFAULT_LANG) being loaded first.
  */
 
 'use strict';
+
+/** Current UI language for the popup session. */
+let lang = I18N_DEFAULT_LANG;
+
+/** Apply <html> lang/dir and translate every [data-i18n] element. */
+function applyLanguage(prefs) {
+  lang = prefs.language || I18N_DEFAULT_LANG;
+
+  document.documentElement.lang = lang;
+  document.documentElement.dir  = isRTL(lang) ? 'rtl' : 'ltr';
+
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    el.textContent = t(lang, el.dataset.i18n);
+  });
+
+  // Sync the select dropdown to the current language.
+  const select = document.getElementById('lang-select');
+  if (select) select.value = lang;
+
+  updateBadge(prefs);
+}
 
 /** Update the header status badge with a count of active (ON) toggles. */
 function updateBadge(prefs) {
   const badge = document.getElementById('status-badge');
   if (!badge) return;
-  const onCount = Object.values(prefs).filter(Boolean).length;
-  const total   = Object.keys(DEFAULTS).length;
+
+  const total   = Object.keys(TOGGLE_DEFAULTS).length;
+  const onCount = Object.keys(TOGGLE_DEFAULTS)
+    .filter((key) => prefs[key] === true).length;
+
   badge.textContent = onCount === 0
-    ? 'All visible'
-    : `${onCount} / ${total} hidden`;
+    ? t(lang, 'statusAllOff')
+    : t(lang, 'statusHidden', { n: onCount, total });
+}
+
+/** Collect the current toggle states from the DOM into a prefs-like object. */
+function readToggleStates() {
+  const state = { language: lang };
+  document.querySelectorAll('#toggle-list input[data-key]').forEach((el) => {
+    state[el.dataset.key] = el.checked;
+  });
+  return state;
 }
 
 /** Set all toggle inputs to match the given prefs object. */
 function renderToggles(prefs) {
-  const inputs = document.querySelectorAll('#toggle-list input[data-key]');
-  inputs.forEach((input) => {
-    const key = input.dataset.key;
-    input.checked = prefs[key] === true;
+  document.querySelectorAll('#toggle-list input[data-key]').forEach((input) => {
+    input.checked = prefs[input.dataset.key] === true;
   });
   updateBadge(prefs);
 }
 
-/** Attach change listeners to all toggles. Each writes only its own key. */
+/** Attach change listeners to toggles — each writes only its own key. */
 function bindToggles() {
-  const inputs = document.querySelectorAll('#toggle-list input[data-key]');
-  inputs.forEach((input) => {
+  document.querySelectorAll('#toggle-list input[data-key]').forEach((input) => {
     input.addEventListener('change', () => {
       const key   = input.dataset.key;
       const value = input.checked;
 
       setPref(key, value).catch((err) => {
-        // Revert the visual state if the write failed.
         console.error('[Salasel] Failed to save preference:', key, err);
-        input.checked = !value;
+        input.checked = !value; // revert on failure
       });
 
-      // Update the badge immediately for responsiveness.
-      const currentPrefs = {};
-      document.querySelectorAll('#toggle-list input[data-key]').forEach((el) => {
-        currentPrefs[el.dataset.key] = el.checked;
-      });
-      updateBadge(currentPrefs);
+      updateBadge(readToggleStates());
     });
   });
 }
 
-/** Entry point — load prefs, render, then wire up listeners. */
+/** Attach click listeners to the language switcher buttons. */
+function bindLanguageSwitch() {
+  const select = document.getElementById('lang-select');
+  if (!select) return;
+
+  select.addEventListener('change', () => {
+    const next = select.value;
+    if (next === lang) return;
+
+    // Update lang before calling applyLanguage so readToggleStates()
+    // picks up the new language value and applyLanguage translates correctly.
+    lang = next;
+
+    setPref('language', next).catch((err) => {
+      console.error('[Salasel] Failed to save language:', err);
+    });
+
+    applyLanguage({ ...readToggleStates(), language: next });
+  });
+}
+
+/** Entry point — load prefs, render language + toggles, then wire listeners. */
 async function init() {
+  let prefs;
   try {
-    const prefs = await getPrefs();
-    renderToggles(prefs);
+    prefs = await getPrefs();
   } catch (err) {
     console.error('[Salasel] Failed to load preferences:', err);
-    // Fall back to defaults so the UI isn't broken.
-    renderToggles(DEFAULTS);
+    prefs = { ...DEFAULTS };
   }
+
+  applyLanguage(prefs);
+  renderToggles(prefs);
   bindToggles();
+  bindLanguageSwitch();
 }
 
 document.addEventListener('DOMContentLoaded', init);
