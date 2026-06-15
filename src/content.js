@@ -17,12 +17,9 @@
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STYLE_ID        = 'salasel-hide';
-const EMPTY_HOME_ID   = 'salasel-empty-home';
-const HOME_FEED_KEY   = 'hideHomepageFeed';
-
-/** URL of the web-accessible empty-home resource, resolved at runtime. */
-const EMPTY_HOME_URL  = chrome.runtime.getURL('public/empty-home.html');
+const STYLE_ID      = 'salasel-hide';
+const EMPTY_HOME_ID = 'salasel-empty-home';
+const HOME_FEED_KEY = 'hideHomepageFeed';
 
 // ─── Style element helpers ────────────────────────────────────────────────────
 
@@ -61,48 +58,116 @@ function buildStyleText(prefs) {
 
 // ─── Homepage replacement ─────────────────────────────────────────────────────
 
-/** True when the current URL is the YouTube homepage (no path beyond /). */
+/** True when the current URL is the YouTube homepage. */
 function isHomepage() {
-  const { hostname, pathname } = location;
-  return hostname === 'www.youtube.com' && (pathname === '/' || pathname === '');
+  return (
+    location.hostname === 'www.youtube.com' &&
+    (location.pathname === '/' || location.pathname === '')
+  );
 }
 
-/** Cache for the fetched empty-home HTML string so we only fetch it once. */
-let emptyHomeHTML = null;
-
 /**
- * Fetch the empty-home markup and cache it.
- * @returns {Promise<string>}
+ * Build the placeholder element with all styles inlined so they survive
+ * injection into YouTube's DOM without needing an external stylesheet.
+ * @param {string} lang — UI language for the placeholder text
+ * @returns {HTMLElement}
  */
-async function fetchEmptyHomeHTML() {
-  if (emptyHomeHTML !== null) return emptyHomeHTML;
-  try {
-    const res  = await fetch(EMPTY_HOME_URL);
-    const text = await res.text();
-    // Parse and extract just the #salasel-empty-home element.
-    const doc  = new DOMParser().parseFromString(text, 'text/html');
-    const node = doc.getElementById(EMPTY_HOME_ID);
-    emptyHomeHTML = node ? node.outerHTML : '';
-  } catch (err) {
-    console.warn('[Salasel] Could not load empty-home.html:', err);
-    emptyHomeHTML = '';
-  }
-  return emptyHomeHTML;
+function buildPlaceholder(lang) {
+  const el = document.createElement('div');
+  el.id = EMPTY_HOME_ID;
+  el.dir = isRTL(lang) ? 'rtl' : 'ltr';
+
+  // All styles are inlined — no external fetch, no style-stripping issues.
+  el.innerHTML = `
+    <style>
+      #salasel-empty-home {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 70vh;
+        padding: 48px 24px;
+        text-align: center;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        user-select: none;
+      }
+      #salasel-empty-home .salasel-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(255, 68, 68, 0.1);
+        border: 1px solid rgba(255, 68, 68, 0.25);
+        border-radius: 999px;
+        padding: 4px 12px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #ff4444;
+        margin-bottom: 24px;
+      }
+      #salasel-empty-home .salasel-badge-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #ff4444;
+        flex-shrink: 0;
+      }
+      #salasel-empty-home .salasel-title {
+        font-size: 22px;
+        font-weight: 700;
+        color: #e8e8e8;
+        margin: 0 0 10px;
+        letter-spacing: -0.01em;
+      }
+      #salasel-empty-home .salasel-subtitle {
+        font-size: 14px;
+        line-height: 1.7;
+        max-width: 340px;
+        color: #888;
+        margin: 0;
+      }
+      #salasel-empty-home .salasel-hint {
+        margin-top: 28px;
+        font-size: 12px;
+        color: #555;
+      }
+      #salasel-empty-home .salasel-hint kbd {
+        display: inline-block;
+        background: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 4px;
+        padding: 2px 7px;
+        font-family: inherit;
+        font-size: 12px;
+        color: #888;
+      }
+    </style>
+    <div class="salasel-badge">
+      <span class="salasel-badge-dot" aria-hidden="true"></span>
+      ${t(lang, 'phBadge')}
+    </div>
+    <p class="salasel-title">${t(lang, 'phTitle')}</p>
+    <p class="salasel-subtitle">${t(lang, 'phSubtitle')}</p>
+    <p class="salasel-hint">${t(lang, 'phHint')}</p>
+  `;
+
+  return el;
 }
 
 /**
- * If hideHomepageFeed is on and we're on the homepage, find the feed container
- * and replace its contents with the clean placeholder.
- * If off, or not on homepage, remove any existing placeholder.
+ * Semaphore — prevents multiple concurrent injection attempts racing each other.
+ * Set to true while an injection is in flight; cleared when done or aborted.
+ */
+let homepageInjecting = false;
+
+/**
+ * If hideHomepageFeed is on and we're on the homepage, inject the placeholder.
+ * If off or not on homepage, remove any existing placeholder.
  * @param {Record<string, boolean>} prefs
  */
 async function applyHomepage(prefs) {
-  if (!isHomepage()) {
-    removeEmptyHome();
-    return;
-  }
-
-  if (!prefs[HOME_FEED_KEY]) {
+  if (!isHomepage() || !prefs[HOME_FEED_KEY]) {
     removeEmptyHome();
     return;
   }
@@ -110,36 +175,41 @@ async function applyHomepage(prefs) {
   // Already injected — nothing to do.
   if (document.getElementById(EMPTY_HOME_ID)) return;
 
-  // Wait for the feed container to exist (it may not at document_start).
-  const container = await waitForElement(
-    'ytd-browse[page-subtype="home"] ytd-rich-grid-renderer',
-    4000
-  );
-  if (!container) return; // Timed out — YouTube DOM not ready; MutationObserver will retry.
+  // Another call is already in-flight — let it finish.
+  if (homepageInjecting) return;
+  homepageInjecting = true;
 
-  // Double-check prefs haven't changed while we were waiting.
-  if (!prefs[HOME_FEED_KEY] || !isHomepage()) return;
+  try {
+    // Wait for the feed container to appear (may not exist at document_start).
+    const container = await waitForElement(
+      'ytd-browse[page-subtype="home"] ytd-rich-grid-renderer',
+      5000
+    );
 
-  const html = await fetchEmptyHomeHTML();
-  if (!html) return;
+    // Bail out if conditions changed while we were waiting.
+    if (!container || !prefs[HOME_FEED_KEY] || !isHomepage()) return;
 
-  // Hide the real feed grid and inject the placeholder alongside it.
-  container.style.display = 'none';
-  const placeholder = document.createElement('div');
-  placeholder.innerHTML = html;
-  const placeholderNode = placeholder.firstElementChild;
-  if (placeholderNode) {
-    container.parentNode.insertBefore(placeholderNode, container);
+    // Final guard: check again right before inserting.
+    if (document.getElementById(EMPTY_HOME_ID)) return;
+
+    container.style.display = 'none';
+    container.parentNode.insertBefore(
+      buildPlaceholder(currentPrefs.language || I18N_DEFAULT_LANG),
+      container
+    );
+  } finally {
+    homepageInjecting = false;
   }
 }
 
-/** Remove any existing empty-home placeholder and restore the feed container. */
+/** Remove any existing placeholder and restore the feed grid. */
 function removeEmptyHome() {
   const existing = document.getElementById(EMPTY_HOME_ID);
   if (existing) existing.remove();
 
-  // Re-show the feed grid if it was hidden.
-  const grid = document.querySelector('ytd-browse[page-subtype="home"] ytd-rich-grid-renderer');
+  const grid = document.querySelector(
+    'ytd-browse[page-subtype="home"] ytd-rich-grid-renderer'
+  );
   if (grid) grid.style.display = '';
 }
 
@@ -154,9 +224,8 @@ let currentPrefs = { ...DEFAULTS };
  */
 function applyPrefs(prefs) {
   currentPrefs = prefs;
-  const styleEl = ensureStyleEl();
-  styleEl.textContent = buildStyleText(prefs);
-  applyHomepage(prefs); // async, but fire-and-forget is fine here
+  ensureStyleEl().textContent = buildStyleText(prefs);
+  applyHomepage(prefs); // intentionally not awaited — fire-and-forget
 }
 
 // ─── MutationObserver (SPA navigation guard) ──────────────────────────────────
@@ -164,8 +233,8 @@ function applyPrefs(prefs) {
 let rafPending = false;
 
 /**
- * Debounced via requestAnimationFrame so the observer doesn't thrash on rapid
- * DOM mutations. Only re-asserts the style tag presence and re-evaluates homepage.
+ * Debounced via requestAnimationFrame. Re-asserts the style tag and re-evaluates
+ * the homepage condition on SPA navigation, but does no broad DOM scanning.
  */
 function onMutation() {
   if (rafPending) return;
@@ -175,11 +244,10 @@ function onMutation() {
 
     // Re-insert the style tag if YouTube removed it.
     if (!document.getElementById(STYLE_ID)) {
-      applyPrefs(currentPrefs);
-      return;
+      ensureStyleEl().textContent = buildStyleText(currentPrefs);
     }
 
-    // Re-evaluate homepage state on every navigation tick.
+    // Re-evaluate homepage state (handles SPA navigation to/from homepage).
     applyHomepage(currentPrefs);
   });
 }
@@ -195,18 +263,15 @@ function startObserver() {
 // ─── Utility: wait for an element to appear in the DOM ────────────────────────
 
 /**
- * Poll for a CSS selector to appear, up to `timeoutMs` milliseconds.
- * @param {string}  selector
- * @param {number}  timeoutMs
+ * Resolves with the element once it exists, or null after timeoutMs.
+ * @param {string} selector
+ * @param {number} timeoutMs
  * @returns {Promise<Element|null>}
  */
 function waitForElement(selector, timeoutMs) {
   return new Promise((resolve) => {
     const existing = document.querySelector(selector);
-    if (existing) {
-      resolve(existing);
-      return;
-    }
+    if (existing) { resolve(existing); return; }
 
     const deadline = Date.now() + timeoutMs;
     const poll = new MutationObserver(() => {
@@ -228,17 +293,18 @@ function waitForElement(selector, timeoutMs) {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'sync') return;
 
-  // Check if any of our keys changed.
   const relevant = Object.keys(changes).some((k) => k in DEFAULTS);
   if (!relevant) return;
 
-  // Merge the changed values into the current prefs snapshot.
   const updatedPrefs = { ...currentPrefs };
   for (const [key, { newValue }] of Object.entries(changes)) {
-    if (key in DEFAULTS) {
-      updatedPrefs[key] = newValue;
-    }
+    if (key in DEFAULTS) updatedPrefs[key] = newValue;
   }
+
+  // If the language changed, drop any existing placeholder so it rebuilds
+  // in the new language on the next applyHomepage call.
+  if (changes.language) removeEmptyHome();
+
   applyPrefs(updatedPrefs);
 });
 
@@ -250,8 +316,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     applyPrefs(prefs);
   } catch (err) {
     console.error('[Salasel] Failed to load preferences on init:', err);
-    applyPrefs(DEFAULTS); // Fail safe: apply defaults (all OFF, nothing hidden)
+    applyPrefs(DEFAULTS);
   }
-
   startObserver();
 })();
