@@ -253,6 +253,7 @@ function buildContinueCard(record, lang) {
         display: flex;
         align-items: center;
         gap: 16px;
+        width: 100%;
         max-width: 920px;
         margin: 16px auto 24px;
         padding: 14px 16px;
@@ -409,19 +410,31 @@ async function applyContinueCard() {
     // Empty state: nothing stored → show nothing extra.
     if (!record || !record.resumeVideoId || !record.playlistId) return;
 
-    // Anchor above the feed grid (or its placeholder) so it's the first thing seen.
-    const anchor = await waitForElement(
-      'ytd-browse[page-subtype="home"] ytd-rich-grid-renderer',
-      5000
-    );
-    if (!anchor || !isHomepage() || cardDismissed) return;
+    // When the homepage-feed toggle is on, the placeholder is the natural home
+    // for the card (they group together, centered). Wait for whichever target
+    // applies so we don't race the placeholder injection and strand the card.
+    const feedHidden = currentPrefs[HOME_FEED_KEY];
+    const target = feedHidden
+      ? await waitForElement(`#${EMPTY_HOME_ID}`, 5000)
+      : await waitForElement(
+          'ytd-browse[page-subtype="home"] ytd-rich-grid-renderer',
+          5000
+        );
+    if (!target || !isHomepage() || cardDismissed) return;
     if (document.getElementById(CARD_ID)) return;
 
     const card = buildContinueCard(
       record,
       currentPrefs.language || I18N_DEFAULT_LANG
     );
-    anchor.parentNode.insertBefore(card, anchor);
+
+    // Placeholder showing → place the card inside it so card + "feed is off"
+    // message sit together as one centered group. Otherwise insert above the grid.
+    if (feedHidden && target.id === EMPTY_HOME_ID) {
+      target.appendChild(card);
+    } else {
+      target.parentNode.insertBefore(card, target);
+    }
   } finally {
     cardInjecting = false;
   }
