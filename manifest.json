@@ -4,7 +4,12 @@
   "version": "1.0.0",
   "description": "Remove YouTube distractions — one toggle per element.",
   "permissions": ["storage"],
-  "host_permissions": ["*://*.youtube.com/*"],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "https://salasel.app/*",
+    "https://img.youtube.com/*",
+    "https://i.ytimg.com/*"
+  ],
   "action": {
     "default_popup": "src/popup.html",
     "default_icon": {
@@ -28,6 +33,14 @@
         "src/content.js"
       ],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://salasel.app/*"],
+      "js": [
+        "src/storage.js",
+        "src/salasel.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [

@@ -16,6 +16,16 @@ const STORAGE_KEYS = {
 };
 
 /**
+ * Key in chrome.storage.local holding the single "most recent" continue-watching
+ * record bridged from salasel.app. Shape:
+ *   { playlistId, playlistName, thumbnailId, resumeVideoId,
+ *     completedVideoIds: string[], updatedAt: number }
+ * Kept in `local` (not `sync`) because it is device-local browsing state, not a
+ * user preference, and may update frequently.
+ */
+const CONTINUE_WATCHING_KEY = 'continueWatching';
+
+/**
  * Boolean toggle keys only (the distraction elements). Kept separate from the
  * non-boolean `language` preference so iteration over toggles stays clean.
  * @type {Record<string, boolean>}
@@ -54,4 +64,23 @@ function getPrefs() {
  */
 function setPref(key, value) {
   return chrome.storage.sync.set({ [key]: value });
+}
+
+/**
+ * Read the continue-watching record from chrome.storage.local.
+ * Resolves to the stored record object, or null if none is set.
+ * @returns {Promise<object|null>}
+ */
+async function getContinueWatching() {
+  const out = await chrome.storage.local.get(CONTINUE_WATCHING_KEY);
+  return out[CONTINUE_WATCHING_KEY] || null;
+}
+
+/**
+ * Persist the continue-watching record to chrome.storage.local.
+ * @param {object} record
+ * @returns {Promise<void>}
+ */
+function setContinueWatching(record) {
+  return chrome.storage.local.set({ [CONTINUE_WATCHING_KEY]: record });
 }

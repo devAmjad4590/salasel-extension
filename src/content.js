@@ -20,6 +20,8 @@
 const STYLE_ID      = 'salasel-hide';
 const EMPTY_HOME_ID = 'salasel-empty-home';
 const HOME_FEED_KEY = 'hideHomepageFeed';
+const CARD_ID       = 'salasel-continue-card';
+const THEME_COLOR   = '#2e4b2c';
 
 // ─── Style element helpers ────────────────────────────────────────────────────
 
@@ -213,6 +215,224 @@ function removeEmptyHome() {
   if (grid) grid.style.display = '';
 }
 
+// ─── Continue-watching card ───────────────────────────────────────────────────
+
+/**
+ * Build the YouTube watch URL the site uses for outbound links.
+ * @param {string} videoId
+ * @param {string} playlistId
+ * @returns {string}
+ */
+function buildWatchUrl(videoId, playlistId) {
+  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` +
+         `&list=${encodeURIComponent(playlistId)}`;
+}
+
+/**
+ * Build the continue-watching card element from a stored record.
+ * Styles are fully inlined so they survive injection into YouTube's DOM.
+ * @param {object} record
+ * @param {string} lang
+ * @returns {HTMLElement}
+ */
+function buildContinueCard(record, lang) {
+  const rtl  = isRTL(lang);
+  const href = buildWatchUrl(record.resumeVideoId, record.playlistId);
+  const thumbId = record.thumbnailId || record.resumeVideoId;
+  const primaryThumb  = `https://img.youtube.com/vi/${thumbId}/sddefault.jpg`;
+  const fallbackThumb = `https://i.ytimg.com/vi/${thumbId}/hqdefault.jpg`;
+
+  const card = document.createElement('div');
+  card.id  = CARD_ID;
+  card.dir = rtl ? 'rtl' : 'ltr';
+
+  card.innerHTML = `
+    <style>
+      #${CARD_ID} {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        max-width: 920px;
+        margin: 16px auto 24px;
+        padding: 14px 16px;
+        background: linear-gradient(135deg, ${THEME_COLOR} 0%, #233a21 100%);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: #f1f5f0;
+      }
+      #${CARD_ID} .salasel-cw-thumb {
+        width: 132px;
+        height: 74px;
+        border-radius: 9px;
+        object-fit: cover;
+        background: #1a2a19;
+        flex-shrink: 0;
+      }
+      #${CARD_ID} .salasel-cw-body {
+        flex: 1;
+        min-width: 0;
+      }
+      #${CARD_ID} .salasel-cw-eyebrow {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #b7d3b3;
+        margin: 0 0 4px;
+      }
+      #${CARD_ID} .salasel-cw-heading {
+        font-size: 13px;
+        color: #cfe3cc;
+        margin: 0 0 3px;
+        font-weight: 500;
+      }
+      #${CARD_ID} .salasel-cw-name {
+        font-size: 17px;
+        font-weight: 700;
+        line-height: 1.3;
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
+      #${CARD_ID} .salasel-cw-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+      #${CARD_ID} .salasel-cw-continue {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        background: #f1f5f0;
+        color: ${THEME_COLOR};
+        font-size: 14px;
+        font-weight: 700;
+        text-decoration: none;
+        padding: 9px 18px;
+        border-radius: 999px;
+        transition: transform 0.12s ease, background 0.12s ease;
+        white-space: nowrap;
+      }
+      #${CARD_ID} .salasel-cw-continue:hover {
+        background: #ffffff;
+        transform: translateY(-1px);
+      }
+      #${CARD_ID} .salasel-cw-dismiss {
+        background: transparent;
+        border: none;
+        color: #b7d3b3;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 8px 10px;
+        border-radius: 999px;
+        font-family: inherit;
+      }
+      #${CARD_ID} .salasel-cw-dismiss:hover { color: #f1f5f0; }
+    </style>
+    <img class="salasel-cw-thumb" alt=""
+         src="${primaryThumb}"
+         data-fallback="${fallbackThumb}" />
+    <div class="salasel-cw-body">
+      <span class="salasel-cw-eyebrow">${t(lang, 'cwEyebrow')}</span>
+      <p class="salasel-cw-heading">${t(lang, 'cwHeading')}</p>
+      <p class="salasel-cw-name" dir="auto"></p>
+    </div>
+    <div class="salasel-cw-actions">
+      <a class="salasel-cw-continue" href="${href}">
+        ${t(lang, 'cwContinue')}
+      </a>
+      <button type="button" class="salasel-cw-dismiss">${t(lang, 'cwDismiss')}</button>
+    </div>
+  `;
+
+  // Set playlist name as text (avoids HTML injection from playlist titles).
+  const nameEl = card.querySelector('.salasel-cw-name');
+  if (nameEl) nameEl.textContent = record.playlistName || record.playlistId;
+
+  // Thumbnail fallback: sddefault → hqdefault.
+  const img = card.querySelector('.salasel-cw-thumb');
+  if (img) {
+    img.addEventListener('error', function onErr() {
+      img.removeEventListener('error', onErr);
+      img.src = img.dataset.fallback;
+    });
+  }
+
+  // Dismiss hides the card for this page view only (re-appears on next home load).
+  const dismissBtn = card.querySelector('.salasel-cw-dismiss');
+  if (dismissBtn) {
+    dismissBtn.addEventListener('click', () => {
+      cardDismissed = true;
+      card.remove();
+    });
+  }
+
+  return card;
+}
+
+/** True once the user dismisses the card, until the next homepage (re)load. */
+let cardDismissed = false;
+
+/** Guards against concurrent card injections racing each other. */
+let cardInjecting = false;
+
+/**
+ * Inject the continue-watching card on the YouTube homepage when a stored record
+ * exists. Removes the card when not on the homepage. Empty state (no record) =
+ * no card, no error.
+ */
+async function applyContinueCard() {
+  if (!isHomepage() || cardDismissed) {
+    removeContinueCard();
+    return;
+  }
+  if (document.getElementById(CARD_ID)) return;
+  if (cardInjecting) return;
+  cardInjecting = true;
+
+  try {
+    let record;
+    try {
+      record = await getContinueWatching();
+    } catch (_err) {
+      record = null;
+    }
+    // Empty state: nothing stored → show nothing extra.
+    if (!record || !record.resumeVideoId || !record.playlistId) return;
+
+    // Anchor above the feed grid (or its placeholder) so it's the first thing seen.
+    const anchor = await waitForElement(
+      'ytd-browse[page-subtype="home"] ytd-rich-grid-renderer',
+      5000
+    );
+    if (!anchor || !isHomepage() || cardDismissed) return;
+    if (document.getElementById(CARD_ID)) return;
+
+    const card = buildContinueCard(
+      record,
+      currentPrefs.language || I18N_DEFAULT_LANG
+    );
+    anchor.parentNode.insertBefore(card, anchor);
+  } finally {
+    cardInjecting = false;
+  }
+}
+
+/** Remove the continue-watching card if present. */
+function removeContinueCard() {
+  const existing = document.getElementById(CARD_ID);
+  if (existing) existing.remove();
+}
+
 // ─── Apply all prefs ──────────────────────────────────────────────────────────
 
 /** In-memory snapshot of current prefs, kept up-to-date by onChanged. */
@@ -225,18 +445,29 @@ let currentPrefs = { ...DEFAULTS };
 function applyPrefs(prefs) {
   currentPrefs = prefs;
   ensureStyleEl().textContent = buildStyleText(prefs);
-  applyHomepage(prefs); // intentionally not awaited — fire-and-forget
+  applyHomepage(prefs);       // intentionally not awaited — fire-and-forget
+  applyContinueCard();        // fire-and-forget
 }
 
 // ─── MutationObserver (SPA navigation guard) ──────────────────────────────────
 
 let rafPending = false;
 
+/** Last seen pathname, used to detect SPA navigation between routes. */
+let lastPath = location.pathname;
+
 /**
  * Debounced via requestAnimationFrame. Re-asserts the style tag and re-evaluates
  * the homepage condition on SPA navigation, but does no broad DOM scanning.
  */
-function onMutation() {
+function onMutation(mutations) {
+  // Detect SPA route change: navigating back to the homepage should re-show a
+  // previously dismissed card.
+  if (location.pathname !== lastPath) {
+    lastPath = location.pathname;
+    if (isHomepage()) cardDismissed = false;
+  }
+
   if (rafPending) return;
   rafPending = true;
   requestAnimationFrame(() => {
@@ -249,6 +480,9 @@ function onMutation() {
 
     // Re-evaluate homepage state (handles SPA navigation to/from homepage).
     applyHomepage(currentPrefs);
+
+    // Re-evaluate the continue-watching card across navigation.
+    applyContinueCard();
   });
 }
 
@@ -291,6 +525,17 @@ function waitForElement(selector, timeoutMs) {
 // ─── chrome.storage.onChanged ─────────────────────────────────────────────────
 
 chrome.storage.onChanged.addListener((changes, area) => {
+  // Continue-watching record lives in local storage — refresh the card when it
+  // changes (e.g. the user just visited salasel.app in another tab).
+  if (area === 'local') {
+    if (changes[CONTINUE_WATCHING_KEY]) {
+      cardDismissed = false;
+      removeContinueCard();
+      applyContinueCard();
+    }
+    return;
+  }
+
   if (area !== 'sync') return;
 
   const relevant = Object.keys(changes).some((k) => k in DEFAULTS);
@@ -301,9 +546,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (key in DEFAULTS) updatedPrefs[key] = newValue;
   }
 
-  // If the language changed, drop any existing placeholder so it rebuilds
-  // in the new language on the next applyHomepage call.
-  if (changes.language) removeEmptyHome();
+  // If the language changed, drop any existing placeholder + card so they
+  // rebuild in the new language on the next apply pass.
+  if (changes.language) {
+    removeEmptyHome();
+    removeContinueCard();
+  }
 
   applyPrefs(updatedPrefs);
 });

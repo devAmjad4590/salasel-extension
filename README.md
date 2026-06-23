@@ -17,6 +17,9 @@ Each distraction element has its own independent toggle. Nothing is hidden until
 | Comments section | The entire comments thread below videos |
 | Homepage feed | Replaces youtube.com with a clean empty page |
 
+It also surfaces a **continue watching** card on the YouTube homepage, based on the last
+playlist you opened on [salasel.app](https://salasel.app).
+
 Preferences are saved to `chrome.storage.sync` — they follow you across signed-in browsers and apply instantly without reloading the page.
 
 ---
@@ -42,13 +45,77 @@ No build step required.
 
 ---
 
+## Continue watching
+
+The extension can resume the playlist you were last watching on salasel.app, directly from
+the YouTube homepage.
+
+### How the bridge works
+
+salasel.app stores its progress in `localStorage` (under `progress-storage`, written by
+Zustand's persist middleware). Browser extensions can't read another origin's
+`localStorage` from a YouTube page, and salasel.app sends no CORS headers — so the bridge
+is split across two content scripts joined by `chrome.storage.local`:
+
+1. **`src/salasel.js`** runs **on salasel.app** (same-origin). It reads
+   `localStorage['progress-storage']`, takes the single most-recent playlist
+   (`recentPlaylists[0]`) plus that playlist's `completedVideos` array, resolves playlist
+   metadata and the ordered video list from the site's public JSON, derives the resume
+   video, and writes one self-contained record to `chrome.storage.local`.
+2. **`src/content.js`** runs **on YouTube**. On the homepage it reads that record and
+   injects an unobtrusive card (site theme color `#2e4b2c`) linking to the resume point. It
+   makes **no cross-origin requests** — everything it needs is already in the record.
+
+If no record exists (you've never opened salasel.app, or there's no progress yet), the card
+simply doesn't appear — no error, no empty card.
+
+### `chrome.storage.local` record shape
+
+```js
+{
+  continueWatching: {
+    playlistId:        'PL...',          // recentPlaylists[0]
+    playlistName:      'أفلا يعقلون',     // from playlists.json (may be '')
+    thumbnailId:       'AYhLE8A5msA',     // playlist thumbnailId, falls back to resumeVideoId
+    resumeVideoId:     'F_feJ3zlp7w',     // derived (see below)
+    completedVideoIds: ['id1', 'id2'],    // completedVideos[playlistId]
+    updatedAt:         1719100000000      // Date.now() at write time
+  }
+}
+```
+
+### Resume-video derivation
+
+The site stores no "last stopped" video or progress percentage — only which videos are
+*completed*. So the resume point is derived:
+
+1. Fetch the playlist's ordered video list from
+   `https://salasel.app/videos/<playlistId>.json` (an ordered object of
+   `{ id, title, duration, uploadedAt, playlistId }`).
+2. The resume video is the **first video in playlist order that is not in
+   `completedVideos`**.
+3. **Fallback:** if every video is completed (or the order can't be resolved), fall back to
+   the **first video** in the playlist, so the card always links somewhere sensible.
+
+The final link uses the same format the site uses for outbound links:
+
+```
+https://www.youtube.com/watch?v=<resumeVideoId>&list=<playlistId>
+```
+
+Thumbnails are loaded from `https://img.youtube.com/vi/<thumbnailId>/sddefault.jpg`, falling
+back to `https://i.ytimg.com/vi/<thumbnailId>/hqdefault.jpg` if that 404s.
+
+---
+
 ## Project structure
 
 ```
 ├── manifest.json              MV3 manifest
 ├── src/
-│   ├── content.js             Injected into YouTube — CSS injection + MutationObserver
-│   ├── storage.js             Storage keys, defaults, and get/set helpers
+│   ├── content.js             Injected into YouTube — CSS injection, MutationObserver, continue-watching card
+│   ├── salasel.js             Injected into salasel.app — reads progress, derives resume video, writes the bridge record
+│   ├── storage.js             Storage keys, defaults, sync + local helpers
 │   ├── i18n.js                Translation dictionary (ar/en) and helpers
 │   ├── popup.html             Popup markup
 │   ├── popup.js               Popup logic — reads/writes storage, handles language switch
@@ -62,6 +129,20 @@ No build step required.
     ├── icon-48.png
     └── icon-128.png
 ```
+
+---
+
+## Manual test notes
+
+1. **salasel.app → record saved.** Open salasel.app, play/mark progress in a playlist, then
+   inspect the extension's storage (`chrome.storage.local`): a `continueWatching` record
+   should be present with the expected `playlistId`, `resumeVideoId`, and
+   `completedVideoIds`.
+2. **YouTube home → card appears.** Open `https://www.youtube.com/`. The continue-watching
+   card should show the playlist name + thumbnail, and **Continue** should link to
+   `https://www.youtube.com/watch?v=<resumeVideoId>&list=<playlistId>`.
+3. **No progress → no card.** On a fresh profile that has never visited salasel.app, the
+   YouTube homepage shows no card and logs no errors.
 
 ---
 

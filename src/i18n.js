@@ -41,6 +41,11 @@ const TRANSLATIONS = {
     footer:         'جزء من سلاسل',
     langLabel:      'اللغة',
 
+    cwEyebrow:      'سلاسل',
+    cwHeading:      'تواصل المشاهدة',
+    cwContinue:     'متابعة',
+    cwDismiss:      'إخفاء',
+
     phBadge:        'محظور بواسطة سلاسل',
     phTitle:        'خلاصة الصفحة الرئيسية متوقفة',
     phSubtitle:     'أوقفت هذا للبقاء مركّزًا. ابحث عن شيء محدد، أو توجّه إلى قوائم التشغيل الخاصة بك.',
@@ -68,6 +73,11 @@ const TRANSLATIONS = {
 
     footer:         'Part of Salasel',
     langLabel:      'Language',
+
+    cwEyebrow:      'Salasel',
+    cwHeading:      'Continue watching',
+    cwContinue:     'Continue',
+    cwDismiss:      'Dismiss',
 
     phBadge:        'Blocked by Salasel',
     phTitle:        'Homepage feed is off',
