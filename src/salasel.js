@@ -164,21 +164,51 @@ function sameMembers(a, b) {
   // Run once on load.
   syncContinueWatching();
 
-  // salasel.app is a SPA — progress can change as the user navigates/marks
-  // videos complete. Re-sync on history navigation and when the tab regains
-  // focus, debounced so rapid changes coalesce.
+  // salasel.app is a SPA — progress can change as the user navigates between
+  // playlists or marks videos complete, all without a full page load. Re-sync on
+  // every signal we can get, debounced so rapid changes coalesce.
   let timer = null;
   const scheduleSync = () => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
       syncContinueWatching();
-    }, 1000);
+    }, 800);
   };
 
+  // Back/forward navigation.
   window.addEventListener('popstate', scheduleSync);
+  // Initial load / bfcache restore.
   window.addEventListener('pageshow', scheduleSync);
+  // Returning to the tab.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') scheduleSync();
   });
+  // Cross-tab localStorage writes (does not fire in the writing tab).
+  window.addEventListener('storage', (e) => {
+    if (!e.key || e.key === PROGRESS_STORAGE_KEY) scheduleSync();
+  });
+
+  // Next.js (and most SPA routers) navigate via history.pushState/replaceState,
+  // which do NOT emit a 'popstate' event. Patch them so switching playlists
+  // in-page triggers a re-sync. Guard against double-patching.
+  if (!history.__salaselPatched) {
+    const fire = () => window.dispatchEvent(new Event('salasel:navigate'));
+    for (const method of ['pushState', 'replaceState']) {
+      const original = history[method];
+      history[method] = function (...args) {
+        const result = original.apply(this, args);
+        fire();
+        return result;
+      };
+    }
+    history.__salaselPatched = true;
+    window.addEventListener('salasel:navigate', scheduleSync);
+  }
+
+  // Backstop: progress can change with no navigation at all (e.g. marking a
+  // video complete updates localStorage in place). Poll the progress key on a
+  // light interval; syncContinueWatching() dedupes, so unchanged state is a
+  // cheap no-op that never touches storage or the network.
+  setInterval(scheduleSync, 5000);
 })();
