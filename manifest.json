@@ -31,8 +31,10 @@
         "src/storage.js",
         "src/i18n.js",
         "src/styles/hide-rules.js",
-        "src/content.js"
+        "src/content.js",
+        "src/notes.js"
       ],
+      "css": ["src/notes.css"],
       "run_at": "document_start"
     },
     {

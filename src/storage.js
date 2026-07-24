@@ -26,6 +26,33 @@ const STORAGE_KEYS = {
 const CONTINUE_WATCHING_KEY = 'continueWatching';
 
 /**
+ * Key in chrome.storage.local holding the per-video notes store — a map keyed by
+ * YouTube video id. Kept in `local` (device-local, may update frequently) and
+ * separate from CONTINUE_WATCHING_KEY.
+ *
+ * Note_Record shape (single source of truth for the extension↔web-app contract):
+ *   {
+ *     videoId:    string,          // YouTube ?v= id
+ *     playlistId: string | null,   // YouTube ?list= id when taken in a playlist
+ *     text:       string,          // plain-text note body (may contain newlines)
+ *     updatedAt:  number           // epoch ms of last edit
+ *   }
+ *
+ * Notes_Store shape: { [videoId: string]: Note_Record }
+ */
+const NOTES_KEY = 'salaselNotes';
+
+/** Schema version for the notes handoff payload delivered to salasel.app. */
+const NOTES_HANDOFF_VERSION = 1;
+
+/** localStorage key + event name used to hand notes to the Salasel web app. */
+const NOTES_INBOX_KEY   = 'salasel-notes-inbox';
+const NOTES_UPDATED_EVT = 'salasel:notes-updated';
+
+/** Hard cap on a single note's length (characters). */
+const NOTE_MAX_LENGTH = 100000;
+
+/**
  * Boolean toggle keys only (the distraction elements). Kept separate from the
  * non-boolean `language` preference so iteration over toggles stays clean.
  * @type {Record<string, boolean>}
@@ -83,4 +110,89 @@ async function getContinueWatching() {
  */
 function setContinueWatching(record) {
   return chrome.storage.local.set({ [CONTINUE_WATCHING_KEY]: record });
+}
+
+/**
+ * Read the entire Notes_Store from chrome.storage.local.
+ * Resolves to the map object (possibly empty), never null.
+ * @returns {Promise<Record<string, object>>}
+ */
+async function getNotesStore() {
+  const out = await chrome.storage.local.get(NOTES_KEY);
+  const store = out[NOTES_KEY];
+  return store && typeof store === 'object' ? store : {};
+}
+
+/**
+ * Read the Note_Record for a single video id.
+ * @param {string} videoId
+ * @returns {Promise<object|null>}
+ */
+async function getNote(videoId) {
+  if (!videoId) return null;
+  const store = await getNotesStore();
+  return store[videoId] || null;
+}
+
+/**
+ * Write (upsert) a Note_Record for a single video id without touching other
+ * records. Empty/whitespace-only text removes the record instead (see deleteNote).
+ * @param {string} videoId
+ * @param {string} text
+ * @param {string|null} [playlistId]
+ * @returns {Promise<object|null>} the stored record, or null if it was removed
+ */
+async function setNote(videoId, text, playlistId) {
+  if (!videoId) return null;
+
+  const trimmed = typeof text === 'string' ? text : '';
+  if (trimmed.trim() === '') {
+    await deleteNote(videoId);
+    return null;
+  }
+
+  const store = await getNotesStore();
+  const record = {
+    videoId,
+    playlistId: playlistId || null,
+    text: trimmed.slice(0, NOTE_MAX_LENGTH),
+    updatedAt: Date.now(),
+  };
+  store[videoId] = record;
+  await chrome.storage.local.set({ [NOTES_KEY]: store });
+  return record;
+}
+
+/**
+ * Remove the Note_Record for a video id. No-op when absent.
+ * @param {string} videoId
+ * @returns {Promise<void>}
+ */
+async function deleteNote(videoId) {
+  if (!videoId) return;
+  const store = await getNotesStore();
+  if (!(videoId in store)) return;
+  delete store[videoId];
+  await chrome.storage.local.set({ [NOTES_KEY]: store });
+}
+
+/**
+ * Build the full handoff payload (envelope + all non-empty notes) that the
+ * Salasel web app reads. Excludes records whose text is empty.
+ * @param {Record<string, object>} store
+ * @returns {object}
+ */
+function buildNotesHandoffPayload(store) {
+  const notes = {};
+  for (const [videoId, rec] of Object.entries(store || {})) {
+    if (rec && typeof rec.text === 'string' && rec.text.trim() !== '') {
+      notes[videoId] = rec;
+    }
+  }
+  return {
+    source: 'salasel-extension',
+    version: NOTES_HANDOFF_VERSION,
+    exportedAt: Date.now(),
+    notes,
+  };
 }
