@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none"
+     xmlns="http://www.w3.org/2000/svg" role="img"
+     aria-label="Salasel notes">
+  <title>Salasel notes</title>
+
+  <!-- Diagonal teal → deep-green gradient, top-left to bottom-right. -->
+  <defs>
+    <linearGradient id="salaselBg" x1="0" y1="0" x2="512" y2="512"
+                    gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#159b86"/>
+      <stop offset="1" stop-color="#2e7d54"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded-square background. -->
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="url(#salaselBg)"/>
+
+  <!-- White line-art note + chain links. Even, rounded strokes. -->
+  <g fill="none" stroke="#ffffff" stroke-width="26"
+     stroke-linecap="round" stroke-linejoin="round">
+    <!-- Document page with a folded top-right corner. -->
+    <path d="M150 132
+             h150
+             l62 62
+             v186
+             a24 24 0 0 1 -24 24
+             H150
+             a24 24 0 0 1 -24 -24
+             V156
+             a24 24 0 0 1 24 -24 Z"/>
+    <!-- Folded corner. -->
+    <path d="M300 132 v62 h62"/>
+
+    <!-- Text line 1 (short, top). -->
+    <path d="M182 216 h92"/>
+    <!-- Text line 2 (long). -->
+    <path d="M182 262 h148"/>
+    <!-- Text line 4 (long, bottom). -->
+    <path d="M182 366 h148"/>
+
+    <!-- Middle line: connector stubs on each side of the chain. -->
+    <path d="M182 314 h28"/>
+    <path d="M302 314 h28"/>
+  </g>
+
+  <!-- Middle "line" as two interlocking chain links (brand accent).
+       Two capsules overlapping in the centre; the overlap reads as a link. -->
+  <g fill="none" stroke="#ffffff" stroke-width="22" stroke-linecap="round">
+    <rect x="206" y="296" width="56" height="36" rx="18"/>
+    <rect x="250" y="296" width="56" height="36" rx="18"/>
+  </g>
+</svg>

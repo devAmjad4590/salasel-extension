@@ -118,11 +118,29 @@ function showToast(message) {
 
 // ─── Button injection ─────────────────────────────────────────────────────────
 
-/** SVG icon for the notes button (matches YouTube control sizing). */
+/**
+ * SVG icon for the notes button. Flat monochrome white to match YouTube's own
+ * control-bar icons. A note page (folded corner + text lines) whose bottom line
+ * is drawn as two interlocking chain links — a nod to the Salasel ("chains")
+ * brand — kept bold enough to read at ~24px.
+ */
+// Flat white line-art glyph, centered in a 24×24 box (page spans x5–19, y3–21 →
+// centered on 12,12). Matches YouTube's native monochrome control icons.
 const NOTES_ICON_SVG =
-  '<svg viewBox="0 0 36 36" width="100%" height="100%" fill="#fff">' +
-  '<path d="M11 10h14v2H11v-2zm0 5h14v2H11v-2zm0 5h9v2h-9v-2z"/>' +
-  '<path d="M9 7v22h18V7H9zm16 20H11V9h14v18z"/></svg>';
+  '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" ' +
+  'stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" ' +
+  'xmlns="http://www.w3.org/2000/svg">' +
+    // Page with a folded top-right corner.
+    '<path d="M6.5 3h7.5l5 5v11.5a1.5 1.5 0 0 1-1.5 1.5h-11a1.5 1.5 0 0 1-1.5-1.5V4.5A1.5 1.5 0 0 1 6.5 3z"/>' +
+    '<path d="M14 3v5h5"/>' +
+    // Top text line (short).
+    '<path d="M8 10.5h4"/>' +
+    // Bottom text line (long).
+    '<path d="M8 17h8"/>' +
+    // Middle "line" as two interlocking chain links (brand accent).
+    '<rect x="8" y="12.2" width="5" height="3" rx="1.5"/>' +
+    '<rect x="11" y="12.2" width="5" height="3" rx="1.5"/>' +
+  '</svg>';
 
 /**
  * Insert the notes button into the player control bar if not already present.
