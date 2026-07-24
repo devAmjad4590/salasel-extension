@@ -68,11 +68,17 @@ const TOGGLE_DEFAULTS = {
 
 /**
  * All default values. Toggles default OFF; UI language defaults to Arabic.
+ *
+ * `notesPanelSide` is the side of the screen the notes panel docks to —
+ * `'right'` (default) or `'left'`. It's a synced UI preference (not a
+ * distraction toggle) so it isn't part of TOGGLE_DEFAULTS and doesn't affect the
+ * popup's "hidden" badge count.
  * @type {Record<string, boolean|string>}
  */
 const DEFAULTS = {
   ...TOGGLE_DEFAULTS,
   language: 'ar',
+  notesPanelSide: 'right',
 };
 
 /**

@@ -42,6 +42,7 @@ No build step required.
 - **MutationObserver** — YouTube is a single-page app. An observer watches for navigation and re-applies the style tag so hidden elements stay hidden across page changes.
 - **`chrome.storage.onChanged`** — when you flip a toggle in the popup, open YouTube tabs update immediately. No reload needed.
 - **i18n** — the popup UI is available in Arabic (default) and English. Switch from the language selector in the popup footer.
+- **Notes panel** — a per-video notes panel opens from a button in the player controls. It docks to the right by default; the "switch side" button (⇄) in the panel header flips it between right and left, and the choice is saved to `chrome.storage.sync`.
 
 ---
 

@@ -34,6 +34,9 @@ const SAVE_DEBOUNCE_MS = 800;
 /** UI language, refreshed from prefs. */
 let notesLang = (typeof I18N_DEFAULT_LANG !== 'undefined') ? I18N_DEFAULT_LANG : 'ar';
 
+/** Which side the panel docks to: 'right' (default) or 'left'. From prefs. */
+let notesSide = 'right';
+
 /** Whether the panel is currently open. */
 let panelOpen = false;
 
@@ -204,6 +207,7 @@ function buildPanel() {
 
   panel.innerHTML = `
     <div class="salasel-np-header">
+      <button type="button" class="salasel-np-side" aria-label=""></button>
       <span class="salasel-np-title"></span>
       <span class="salasel-np-status" aria-live="polite"></span>
       <button type="button" class="salasel-np-close" aria-label=""></button>
@@ -216,7 +220,9 @@ function buildPanel() {
   `;
 
   applyPanelLabels(panel);
+  applyPanelSide(panel);
 
+  panel.querySelector('.salasel-np-side').addEventListener('click', toggleSide);
   panel.querySelector('.salasel-np-close').addEventListener('click', closePanel);
   panel.querySelector('.salasel-np-dl-video')
        .addEventListener('click', downloadVideoNotes);
@@ -234,6 +240,11 @@ function buildPanel() {
 function applyPanelLabels(panel) {
   const rtl = isRTL(notesLang);
   panel.dir = rtl ? 'rtl' : 'ltr';
+  const sideBtn = panel.querySelector('.salasel-np-side');
+  if (sideBtn) {
+    sideBtn.setAttribute('aria-label', t(notesLang, 'notesSwitchSide'));
+    sideBtn.title = t(notesLang, 'notesSwitchSide');
+  }
   panel.querySelector('.salasel-np-title').textContent = t(notesLang, 'notesTitle');
   panel.querySelector('.salasel-np-close')
        .setAttribute('aria-label', t(notesLang, 'notesClose'));
@@ -248,6 +259,39 @@ function applyPanelLabels(panel) {
   plBtn.style.display = getCurrentPlaylistId() ? '' : 'none';
 }
 
+/**
+ * Reflect the current `notesSide` onto the panel + <body> so CSS can dock the
+ * panel and shift the page to the correct side. Also refreshes the side button's
+ * chevron direction and label.
+ * @param {HTMLElement} panel
+ */
+function applyPanelSide(panel) {
+  const left = notesSide === 'left';
+  panel.classList.toggle('salasel-np--left', left);
+  panel.classList.toggle('salasel-np--right', !left);
+  document.body.classList.toggle('salasel-notes-left', left);
+  document.body.classList.toggle('salasel-notes-right', !left);
+
+  const sideBtn = panel.querySelector('.salasel-np-side');
+  if (sideBtn) {
+    // Fixed swap glyph — reads as "switch direction" on either side.
+    sideBtn.textContent = '⇄';
+    sideBtn.setAttribute('aria-label', t(notesLang, 'notesSwitchSide'));
+    sideBtn.title = t(notesLang, 'notesSwitchSide');
+  }
+}
+
+/** Flip the panel to the other side and persist the choice. */
+function toggleSide() {
+  notesSide = notesSide === 'right' ? 'left' : 'right';
+  const panel = document.getElementById(NOTES_PANEL_ID);
+  if (panel) applyPanelSide(panel);
+
+  setPref('notesPanelSide', notesSide).catch((err) => {
+    console.error('[Salasel] Failed to save notes panel side:', err);
+  });
+}
+
 /** Open the panel bound to videoId and load its stored note. */
 async function openPanel(videoId) {
   let panel = document.getElementById(NOTES_PANEL_ID);
@@ -256,6 +300,7 @@ async function openPanel(videoId) {
     document.body.appendChild(panel);
   }
   applyPanelLabels(panel);
+  applyPanelSide(panel);
 
   boundVideoId = videoId;
   panelOpen = true;
@@ -467,17 +512,29 @@ function onFullscreenChange() {
   try {
     const prefs = await getPrefs();
     notesLang = prefs.language || notesLang;
+    if (prefs.notesPanelSide === 'left' || prefs.notesPanelSide === 'right') {
+      notesSide = prefs.notesPanelSide;
+    }
   } catch (_err) {
-    // Keep default language.
+    // Keep default language + side.
   }
 
   document.addEventListener('fullscreenchange', onFullscreenChange);
   document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
-  // React to language changes from the popup.
+  // React to language / panel-side changes from other tabs or the popup.
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'sync' && changes.language) {
+    if (area !== 'sync') return;
+    if (changes.language) {
       refreshLanguage(changes.language.newValue);
+    }
+    if (changes.notesPanelSide) {
+      const next = changes.notesPanelSide.newValue;
+      if (next === 'left' || next === 'right') {
+        notesSide = next;
+        const panel = document.getElementById(NOTES_PANEL_ID);
+        if (panel) applyPanelSide(panel);
+      }
     }
   });
 

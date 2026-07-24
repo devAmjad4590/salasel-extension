@@ -66,6 +66,7 @@ const TRANSLATIONS = {
     notesSaveError:  'تعذّر حفظ الملاحظة. حاول مرة أخرى.',
     notesLoadError:  'تعذّر تحميل الملاحظات المحفوظة.',
     notesLimit:      'بلغت الحد الأقصى لطول الملاحظة.',
+    notesSwitchSide: 'تبديل الجهة',
   },
 
   en: {
@@ -115,6 +116,7 @@ const TRANSLATIONS = {
     notesSaveError:  'Couldn’t save the note. Try again.',
     notesLoadError:  'Couldn’t load saved notes.',
     notesLimit:      'Reached the maximum note length.',
+    notesSwitchSide: 'Switch side',
   },
 };
 

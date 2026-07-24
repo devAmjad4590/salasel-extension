@@ -56,33 +56,56 @@ html:not([dark]) {
 /* ─── Layout shift when the panel is open ──────────────────────────────── */
 
 /* Nudge the page content over so the panel doesn't overlap the video. The
-   width is capped small so the video barely changes size. */
+   width is capped small so the video barely changes size. The margin is applied
+   on whichever physical side the panel is docked to (user-selectable). */
 body.salasel-notes-open #page-manager {
-  margin-inline-end: min(400px, 30vw);
   transition: margin 0.18s ease;
+}
+body.salasel-notes-open.salasel-notes-right #page-manager {
+  margin-right: min(400px, 30vw);
+}
+body.salasel-notes-open.salasel-notes-left #page-manager {
+  margin-left: min(400px, 30vw);
 }
 
 /* ─── Side panel ───────────────────────────────────────────────────────── */
 
 #salasel-notes-panel {
   position: fixed;
-  inset-block: 0;
-  inset-inline-end: 0;
+  top: 0;
+  bottom: 0;
   width: min(400px, 30vw);
   min-width: 260px;
   max-width: 400px;
   background: var(--salasel-np-bg);
-  border-inline-start: 1px solid var(--salasel-np-border);
-  box-shadow: -6px 0 24px var(--salasel-np-shadow);
   z-index: 2147483000;
   display: flex;
   flex-direction: column;
-  transform: translateX(100%);
   transition: transform 0.18s ease;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   color: var(--salasel-np-text);
 }
-#salasel-notes-panel[dir="rtl"] { transform: translateX(-100%); }
+
+/* Docked right: sits at the right edge, slides in from the right. */
+#salasel-notes-panel.salasel-np--right {
+  right: 0;
+  left: auto;
+  border-left: 1px solid var(--salasel-np-border);
+  border-right: none;
+  box-shadow: -6px 0 24px var(--salasel-np-shadow);
+  transform: translateX(100%);
+}
+
+/* Docked left: sits at the left edge, slides in from the left. */
+#salasel-notes-panel.salasel-np--left {
+  left: 0;
+  right: auto;
+  border-right: 1px solid var(--salasel-np-border);
+  border-left: none;
+  box-shadow: 6px 0 24px var(--salasel-np-shadow);
+  transform: translateX(-100%);
+}
+
 #salasel-notes-panel.salasel-np--open { transform: translateX(0); }
 
 #salasel-notes-panel .salasel-np-header {
@@ -104,6 +127,21 @@ body.salasel-notes-open #page-manager {
   color: #b7d3b3;
   min-width: 48px;
   text-align: end;
+}
+#salasel-notes-panel .salasel-np-side {
+  background: transparent;
+  border: none;
+  color: #f1f5f0;
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
+  opacity: 0.85;
+}
+#salasel-notes-panel .salasel-np-side:hover {
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 1;
 }
 #salasel-notes-panel .salasel-np-close {
   background: transparent;
