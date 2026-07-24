@@ -27,6 +27,42 @@
 const PROGRESS_STORAGE_KEY = 'progress-storage';
 
 /**
+ * Forward the extension's notes store to the Salasel web app via the page's
+ * localStorage inbox + a live CustomEvent. Read-only w.r.t. chrome.storage: it
+ * reads the Notes_Store and never mutates it. Best-effort; fails silently.
+ */
+async function forwardNotesToWebApp() {
+  let store;
+  try {
+    store = await getNotesStore();
+  } catch (_err) {
+    // Read failed — leave the store untouched and surface nothing.
+    return;
+  }
+
+  let payload;
+  try {
+    payload = buildNotesHandoffPayload(store);
+  } catch (_err) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(NOTES_INBOX_KEY, JSON.stringify(payload));
+  } catch (_err) {
+    // localStorage may be full/blocked — skip the durable channel.
+  }
+
+  try {
+    window.dispatchEvent(new CustomEvent(NOTES_UPDATED_EVT, {
+      detail: { source: 'salasel-extension', version: NOTES_HANDOFF_VERSION },
+    }));
+  } catch (_err) {
+    // Event dispatch failed — nothing more to do.
+  }
+}
+
+/**
  * Safely read and parse salasel.app's progress-storage localStorage entry.
  * @returns {{ completedVideos: Record<string,string[]>, recentPlaylists: string[] } | null}
  */
@@ -163,6 +199,15 @@ function sameMembers(a, b) {
 (function init() {
   // Run once on load.
   syncContinueWatching();
+  forwardNotesToWebApp();
+
+  // Re-forward notes whenever the extension's notes store changes (e.g. the user
+  // just took notes on a YouTube tab).
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes[NOTES_KEY]) {
+      forwardNotesToWebApp();
+    }
+  });
 
   // salasel.app is a SPA — progress can change as the user navigates between
   // playlists or marks videos complete, all without a full page load. Re-sync on
