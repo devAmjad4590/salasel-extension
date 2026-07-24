@@ -64,7 +64,11 @@ async function forwardNotesToWebApp() {
 
 /**
  * Safely read and parse salasel.app's progress-storage localStorage entry.
- * @returns {{ completedVideos: Record<string,string[]>, recentPlaylists: string[] } | null}
+ * @returns {{
+ *   completedVideos: Record<string,string[]>,
+ *   recentPlaylists: string[],
+ *   lastWatched: { playlistId: string, videoId: string, updatedAt?: number } | null
+ * } | null}
  */
 function readProgressState() {
   try {
@@ -83,7 +87,20 @@ function readProgressState() {
         ? state.completedVideos
         : {};
 
-    return { completedVideos, recentPlaylists };
+    // The web app persists the exact playlist + video the user last opened.
+    // Preferred over the completed-videos heuristic when present and well-formed.
+    const lw = state.lastWatched;
+    const lastWatched =
+      lw &&
+      typeof lw === 'object' &&
+      typeof lw.playlistId === 'string' &&
+      lw.playlistId &&
+      typeof lw.videoId === 'string' &&
+      lw.videoId
+        ? lw
+        : null;
+
+    return { completedVideos, recentPlaylists, lastWatched };
   } catch (_err) {
     // Malformed JSON / storage access denied — fail silently.
     return null;
@@ -133,19 +150,32 @@ async function syncContinueWatching() {
   const progress = readProgressState();
   if (!progress) return;
 
-  const playlistId = progress.recentPlaylists[0];
+  // Prefer the exact playlist the user last opened. The web app records this on
+  // click; it's the source of truth for "what to resume." Fall back to the
+  // most-recent playlist list when lastWatched isn't available yet (e.g. the web
+  // app hasn't shipped its half, or the user's stored state predates the field).
+  const playlistId = progress.lastWatched
+    ? progress.lastWatched.playlistId
+    : progress.recentPlaylists[0];
   if (!playlistId) return; // No recent activity yet → leave storage as-is.
 
   const completedVideoIds = Array.isArray(progress.completedVideos[playlistId])
     ? progress.completedVideos[playlistId]
     : [];
 
-  // Skip redundant work: if we already stored this exact playlist + completed
-  // set, there's nothing new to compute.
+  // The exact video the user last clicked, when the web app provides it.
+  const clickedVideoId =
+    progress.lastWatched && progress.lastWatched.playlistId === playlistId
+      ? progress.lastWatched.videoId
+      : null;
+
+  // Skip redundant work: if we already stored this exact playlist + resume video
+  // + completed set, there's nothing new to compute.
   const existing = await getContinueWatching();
   if (
     existing &&
     existing.playlistId === playlistId &&
+    (!clickedVideoId || existing.resumeVideoId === clickedVideoId) &&
     sameMembers(existing.completedVideoIds, completedVideoIds)
   ) {
     return;
@@ -155,12 +185,14 @@ async function syncContinueWatching() {
   const playlists = await fetchJson('/playlists.json');
   const meta = playlists && playlists[playlistId];
 
-  // Resolve the ordered video list to derive the resume point.
-  const videos = await fetchJson(`/videos/${encodeURIComponent(playlistId)}.json`);
-  const completedSet = new Set(completedVideoIds);
-  const resumeVideoId = videos
-    ? deriveResumeVideoId(videos, completedSet)
-    : null;
+  // Resume target: the exact clicked video when known, otherwise derive it from
+  // the ordered video list (first not-yet-completed video, first as fallback).
+  let resumeVideoId = clickedVideoId;
+  if (!resumeVideoId) {
+    const videos = await fetchJson(`/videos/${encodeURIComponent(playlistId)}.json`);
+    const completedSet = new Set(completedVideoIds);
+    resumeVideoId = videos ? deriveResumeVideoId(videos, completedSet) : null;
+  }
 
   // Without a resume target the card can't link anywhere — don't store a record.
   if (!resumeVideoId) return;

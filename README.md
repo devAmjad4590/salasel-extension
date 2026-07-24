@@ -58,10 +58,12 @@ Zustand's persist middleware). Browser extensions can't read another origin's
 is split across two content scripts joined by `chrome.storage.local`:
 
 1. **`src/salasel.js`** runs **on salasel.app** (same-origin). It reads
-   `localStorage['progress-storage']`, takes the single most-recent playlist
-   (`recentPlaylists[0]`) plus that playlist's `completedVideos` array, resolves playlist
-   metadata and the ordered video list from the site's public JSON, derives the resume
-   video, and writes one self-contained record to `chrome.storage.local`.
+   `localStorage['progress-storage']`. When the web app records `state.lastWatched`
+   (the exact playlist + video the user last opened), that is used directly as the resume
+   target. Otherwise it falls back to the single most-recent playlist
+   (`recentPlaylists[0]`) plus that playlist's `completedVideos` array and *derives* the
+   resume video from the ordered video list. Either way it resolves playlist metadata and
+   writes one self-contained record to `chrome.storage.local`.
 2. **`src/content.js`** runs **on YouTube**. On the homepage it reads that record and
    injects an unobtrusive card (site theme color `#2e4b2c`) linking to the resume point. It
    makes **no cross-origin requests** — everything it needs is already in the record.
@@ -86,16 +88,25 @@ simply doesn't appear — no error, no empty card.
 
 ### Resume-video derivation
 
-The site stores no "last stopped" video or progress percentage — only which videos are
-*completed*. So the resume point is derived:
+The resume target is chosen in priority order:
 
-1. Fetch the playlist's ordered video list from
+**1. Exact last-clicked video (preferred).** If the web app persists
+`state.lastWatched = { playlistId, videoId, updatedAt }` — the exact playlist and video the
+user last opened — the extension uses that video directly. This reflects *what the user
+actually clicked*, not a guess. (Web-app side of this contract lives in
+[`.kiro/specs/youtube-video-notes/salasel-webapp-handoff-brief.md`](.kiro/specs/youtube-video-notes/salasel-webapp-handoff-brief.md).)
+
+**2. Derived fallback.** When `lastWatched` is absent (the web app hasn't shipped its half,
+or the stored state predates the field), the resume point is derived:
+
+1. Take the most-recent playlist (`recentPlaylists[0]`).
+2. Fetch the playlist's ordered video list from
    `https://salasel.app/videos/<playlistId>.json` (an ordered object of
    `{ id, title, duration, uploadedAt, playlistId }`).
-2. The resume video is the **first video in playlist order that is not in
+3. The resume video is the **first video in playlist order that is not in
    `completedVideos`**.
-3. **Fallback:** if every video is completed (or the order can't be resolved), fall back to
-   the **first video** in the playlist, so the card always links somewhere sensible.
+4. **Final fallback:** if every video is completed (or the order can't be resolved), fall
+   back to the **first video** in the playlist, so the card always links somewhere sensible.
 
 The final link uses the same format the site uses for outbound links:
 
