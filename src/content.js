@@ -356,8 +356,17 @@ function buildContinueCard(record, lang) {
   `;
 
   // Set playlist name as text (avoids HTML injection from playlist titles).
+  // Only show a real, human-readable name — never fall back to the raw playlist
+  // id, which is meaningless to the user. If there's no name, hide the line.
   const nameEl = card.querySelector('.salasel-cw-name');
-  if (nameEl) nameEl.textContent = record.playlistName || record.playlistId;
+  if (nameEl) {
+    const name = (record.playlistName || '').trim();
+    if (name) {
+      nameEl.textContent = name;
+    } else {
+      nameEl.remove();
+    }
+  }
 
   // Thumbnail fallback: sddefault → hqdefault.
   const img = card.querySelector('.salasel-cw-thumb');

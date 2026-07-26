@@ -60,11 +60,12 @@ is split across two content scripts joined by `chrome.storage.local`:
 
 1. **`src/salasel.js`** runs **on salasel.app** (same-origin). It reads
    `localStorage['progress-storage']`. When the web app records `state.lastWatched`
-   (the exact playlist + video the user last opened), that is used directly as the resume
-   target. Otherwise it falls back to the single most-recent playlist
+   (the exact playlist + video the user last opened, **plus the playlist name**), that is
+   used directly — the resume target *and* the display name/thumbnail all come straight from
+   that record. Otherwise it falls back to the single most-recent playlist
    (`recentPlaylists[0]`) plus that playlist's `completedVideos` array and *derives* the
-   resume video from the ordered video list. Either way it resolves playlist metadata and
-   writes one self-contained record to `chrome.storage.local`.
+   resume video from the ordered video list. It then writes one self-contained record to
+   `chrome.storage.local`.
 2. **`src/content.js`** runs **on YouTube**. On the homepage it reads that record and
    injects an unobtrusive card (site theme color `#2e4b2c`) linking to the resume point. It
    makes **no cross-origin requests** — everything it needs is already in the record.
@@ -77,9 +78,9 @@ simply doesn't appear — no error, no empty card.
 ```js
 {
   continueWatching: {
-    playlistId:        'PL...',          // recentPlaylists[0]
-    playlistName:      'أفلا يعقلون',     // from playlists.json (may be '')
-    thumbnailId:       'AYhLE8A5msA',     // playlist thumbnailId, falls back to resumeVideoId
+    playlistId:        'PL...',          // from lastWatched (or recentPlaylists[0])
+    playlistName:      'أفلا يعقلون',     // from lastWatched.playlistName (may be '')
+    thumbnailId:       'AYhLE8A5msA',     // lastWatched.thumbnailId, falls back to resumeVideoId
     resumeVideoId:     'F_feJ3zlp7w',     // derived (see below)
     completedVideoIds: ['id1', 'id2'],    // completedVideos[playlistId]
     updatedAt:         1719100000000      // Date.now() at write time
@@ -92,10 +93,12 @@ simply doesn't appear — no error, no empty card.
 The resume target is chosen in priority order:
 
 **1. Exact last-clicked video (preferred).** If the web app persists
-`state.lastWatched = { playlistId, videoId, updatedAt }` — the exact playlist and video the
-user last opened — the extension uses that video directly. This reflects *what the user
-actually clicked*, not a guess. (Web-app side of this contract lives in
-[`.kiro/specs/youtube-video-notes/salasel-webapp-handoff-brief.md`](.kiro/specs/youtube-video-notes/salasel-webapp-handoff-brief.md).)
+`state.lastWatched = { playlistId, videoId, playlistName, thumbnailId?, updatedAt }` — the
+exact playlist and video the user last opened, plus the display name — the extension uses
+that directly. This reflects *what the user actually clicked*, not a guess, and the playlist
+name/thumbnail come from the same record (no JSON lookup, no network call). (Web-app side of
+this contract lives in
+[`.kiro/specs/youtube-distraction-blocker/salasel-webapp-last-watched-brief.md`](.kiro/specs/youtube-distraction-blocker/salasel-webapp-last-watched-brief.md).)
 
 **2. Derived fallback.** When `lastWatched` is absent (the web app hasn't shipped its half,
 or the stored state predates the field), the resume point is derived:

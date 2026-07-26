@@ -67,7 +67,13 @@ async function forwardNotesToWebApp() {
  * @returns {{
  *   completedVideos: Record<string,string[]>,
  *   recentPlaylists: string[],
- *   lastWatched: { playlistId: string, videoId: string, updatedAt?: number } | null
+ *   lastWatched: {
+ *     playlistId: string,
+ *     videoId: string,
+ *     playlistName?: string,
+ *     thumbnailId?: string,
+ *     updatedAt?: number
+ *   } | null
  * } | null}
  */
 function readProgressState() {
@@ -87,8 +93,9 @@ function readProgressState() {
         ? state.completedVideos
         : {};
 
-    // The web app persists the exact playlist + video the user last opened.
-    // Preferred over the completed-videos heuristic when present and well-formed.
+    // The web app persists the exact playlist + video the user last opened,
+    // along with the human-readable playlist name (and optionally a thumbnail
+    // video id). Everything the card needs travels in this record — no fetch.
     const lw = state.lastWatched;
     const lastWatched =
       lw &&
@@ -169,21 +176,26 @@ async function syncContinueWatching() {
       ? progress.lastWatched.videoId
       : null;
 
+  // The human-readable playlist name the web app handed over (if any).
+  const incomingName =
+    progress.lastWatched &&
+    progress.lastWatched.playlistId === playlistId &&
+    typeof progress.lastWatched.playlistName === 'string'
+      ? progress.lastWatched.playlistName.trim()
+      : '';
+
   // Skip redundant work: if we already stored this exact playlist + resume video
-  // + completed set, there's nothing new to compute.
+  // + completed set AND the name hasn't newly arrived, there's nothing to do.
   const existing = await getContinueWatching();
   if (
     existing &&
     existing.playlistId === playlistId &&
     (!clickedVideoId || existing.resumeVideoId === clickedVideoId) &&
-    sameMembers(existing.completedVideoIds, completedVideoIds)
+    sameMembers(existing.completedVideoIds, completedVideoIds) &&
+    (!incomingName || existing.playlistName === incomingName)
   ) {
     return;
   }
-
-  // Resolve playlist metadata (name + thumbnailId) from playlists.json.
-  const playlists = await fetchJson('/playlists.json');
-  const meta = playlists && playlists[playlistId];
 
   // Resume target: the exact clicked video when known, otherwise derive it from
   // the ordered video list (first not-yet-completed video, first as fallback).
@@ -197,10 +209,24 @@ async function syncContinueWatching() {
   // Without a resume target the card can't link anywhere — don't store a record.
   if (!resumeVideoId) return;
 
+  // Playlist name + thumbnail come straight from the web app's lastWatched
+  // record — it already knows them at click time. No cross-referencing a JSON
+  // file that isn't keyed by native YouTube playlist ids. Preserve a previously
+  // stored name if the current record happens to omit it.
+  const lw = progress.lastWatched;
+  const playlistName =
+    incomingName ||
+    (existing && existing.playlistId === playlistId && existing.playlistName) ||
+    '';
+  const thumbnailId =
+    (lw && typeof lw.thumbnailId === 'string' && lw.thumbnailId)
+      ? lw.thumbnailId
+      : resumeVideoId;
+
   const record = {
     playlistId,
-    playlistName: (meta && meta.name) || '',
-    thumbnailId: (meta && meta.thumbnailId) || resumeVideoId,
+    playlistName,
+    thumbnailId,
     resumeVideoId,
     completedVideoIds,
     updatedAt: Date.now(),
