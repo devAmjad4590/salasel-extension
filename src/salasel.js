@@ -63,6 +63,40 @@ async function forwardNotesToWebApp() {
 }
 
 /**
+ * Import notes the Salasel web app pushed to us (app→extension). Reads the
+ * page's localStorage outbox, validates the envelope, and merges each record
+ * into the extension's Notes_Store with last-write-wins on updatedAt. Never
+ * deletes and never throws — best-effort, fails silently.
+ */
+async function importNotesFromWebApp() {
+  let raw;
+  try {
+    raw = window.localStorage.getItem(NOTES_OUTBOX_KEY);
+  } catch (_err) {
+    // localStorage access blocked — nothing to import.
+    return;
+  }
+  if (!raw) return;
+
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch (_err) {
+    // Malformed JSON — ignore.
+    return;
+  }
+
+  const incoming = extractHandoffNotes(payload);
+  if (!incoming) return; // Wrong source/version or no notes.
+
+  try {
+    await mergeIncomingNotes(incoming);
+  } catch (_err) {
+    // Merge/write failed — fail silently.
+  }
+}
+
+/**
  * Safely read and parse salasel.app's progress-storage localStorage entry.
  * @returns {{
  *   completedVideos: Record<string,string[]>,
@@ -258,6 +292,7 @@ function sameMembers(a, b) {
   // Run once on load.
   syncContinueWatching();
   forwardNotesToWebApp();
+  importNotesFromWebApp();
 
   // Re-forward notes whenever the extension's notes store changes (e.g. the user
   // just took notes on a YouTube tab).
@@ -265,6 +300,19 @@ function sameMembers(a, b) {
     if (area === 'local' && changes[NOTES_KEY]) {
       forwardNotesToWebApp();
     }
+  });
+
+  // Re-import whenever the web app edits a note. The native `storage` event does
+  // not fire in the tab that wrote it, so the app dispatches this CustomEvent on
+  // the same window we listen on here.
+  window.addEventListener(APP_NOTES_UPDATED_EVT, () => {
+    importNotesFromWebApp();
+  });
+
+  // Cross-tab safety net: if the app wrote the outbox from another tab, the
+  // native `storage` event does fire here — re-import on that too.
+  window.addEventListener('storage', (e) => {
+    if (!e.key || e.key === NOTES_OUTBOX_KEY) importNotesFromWebApp();
   });
 
   // salasel.app is a SPA — progress can change as the user navigates between

@@ -49,6 +49,15 @@ const NOTES_HANDOFF_VERSION = 1;
 const NOTES_INBOX_KEY   = 'salasel-notes-inbox';
 const NOTES_UPDATED_EVT = 'salasel:notes-updated';
 
+/**
+ * localStorage key + event name the Salasel web app uses to push notes back to
+ * the extension (app→extension). The mirror of the inbox channel: same payload
+ * schema, opposite direction. The native `storage` event does not fire in the
+ * writing tab, so consumers rely on the CustomEvent to re-read.
+ */
+const NOTES_OUTBOX_KEY      = 'salasel-notes-outbox';
+const APP_NOTES_UPDATED_EVT = 'salasel:app-notes-updated';
+
 /** Hard cap on a single note's length (characters). */
 const NOTE_MAX_LENGTH = 100000;
 
@@ -201,4 +210,87 @@ function buildNotesHandoffPayload(store) {
     exportedAt: Date.now(),
     notes,
   };
+}
+
+/**
+ * Loosely validate + normalize a single incoming Note_Record from a handoff
+ * payload. Requires string `videoId` and string `text`; coerces a missing/
+ * non-string `playlistId` to null and a non-finite `updatedAt` to 0. Returns
+ * null when the record can't be salvaged.
+ * @param {any} rec
+ * @returns {{videoId:string, playlistId:string|null, text:string, updatedAt:number}|null}
+ */
+function normalizeIncomingNote(rec) {
+  if (!rec || typeof rec !== 'object') return null;
+  if (typeof rec.videoId !== 'string' || rec.videoId === '') return null;
+  if (typeof rec.text !== 'string') return null;
+
+  const playlistId = typeof rec.playlistId === 'string' ? rec.playlistId : null;
+  const updatedAt = Number.isFinite(rec.updatedAt) ? rec.updatedAt : 0;
+
+  return {
+    videoId: rec.videoId,
+    playlistId,
+    text: rec.text.slice(0, NOTE_MAX_LENGTH),
+    updatedAt,
+  };
+}
+
+/**
+ * Validate a full notes handoff payload (the envelope written to the inbox/
+ * outbox) and return its normalized notes as a { [videoId]: Note_Record } map.
+ * Rejects (returns null) unless `source === 'salasel-extension'` and
+ * `version === NOTES_HANDOFF_VERSION`. Malformed individual records are skipped.
+ * @param {any} payload
+ * @returns {Record<string, object>|null}
+ */
+function extractHandoffNotes(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  if (payload.source !== 'salasel-extension') return null;
+  if (payload.version !== NOTES_HANDOFF_VERSION) return null;
+  if (!payload.notes || typeof payload.notes !== 'object') return null;
+
+  const out = {};
+  for (const rec of Object.values(payload.notes)) {
+    const norm = normalizeIncomingNote(rec);
+    if (norm) out[norm.videoId] = norm;
+  }
+  return out;
+}
+
+/**
+ * Merge incoming notes into the extension's Notes_Store using last-write-wins on
+ * `updatedAt`: an incoming note only overwrites an existing one when its
+ * `updatedAt` is strictly greater. Notes absent from `incoming` are left
+ * untouched — this never deletes. Persists only when something actually changed.
+ * @param {Record<string, object>} incoming — normalized { [videoId]: Note_Record }
+ * @returns {Promise<boolean>} true if the store was modified + written
+ */
+async function mergeIncomingNotes(incoming) {
+  if (!incoming || typeof incoming !== 'object') return false;
+
+  let store;
+  try {
+    store = await getNotesStore();
+  } catch (_err) {
+    return false;
+  }
+
+  let changed = false;
+  for (const [videoId, rec] of Object.entries(incoming)) {
+    const existing = store[videoId];
+    if (!existing || rec.updatedAt > (existing.updatedAt || 0)) {
+      store[videoId] = rec;
+      changed = true;
+    }
+  }
+
+  if (!changed) return false;
+
+  try {
+    await chrome.storage.local.set({ [NOTES_KEY]: store });
+  } catch (_err) {
+    return false;
+  }
+  return true;
 }
