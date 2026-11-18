@@ -218,18 +218,8 @@ function removeEmptyHome() {
 // ─── Continue-watching card ───────────────────────────────────────────────────
 
 /**
- * Build the YouTube watch URL the site uses for outbound links.
- * @param {string} videoId
- * @param {string} playlistId
- * @returns {string}
- */
-function buildWatchUrl(videoId, playlistId) {
-  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` +
-         `&list=${encodeURIComponent(playlistId)}`;
-}
-
-/**
- * Build the continue-watching card element from a stored record.
+ * Build the continue-watching card from a storage.js-validated record. Continue
+ * always returns to canonical Salasel playback, never an outbound YouTube URL.
  * Styles are fully inlined so they survive injection into YouTube's DOM.
  * @param {object} record
  * @param {string} lang
@@ -237,8 +227,8 @@ function buildWatchUrl(videoId, playlistId) {
  */
 function buildContinueCard(record, lang) {
   const rtl  = isRTL(lang);
-  const href = buildWatchUrl(record.resumeVideoId, record.playlistId);
-  const thumbId = record.thumbnailId || record.resumeVideoId;
+  const href = record.destination;
+  const thumbId = record.thumbnailId || record.mediaId;
   const primaryThumb  = `https://img.youtube.com/vi/${thumbId}/sddefault.jpg`;
   const fallbackThumb = `https://i.ytimg.com/vi/${thumbId}/hqdefault.jpg`;
 
@@ -355,18 +345,12 @@ function buildContinueCard(record, lang) {
     </div>
   `;
 
-  // Set playlist name as text (avoids HTML injection from playlist titles).
-  // Only show a real, human-readable name — never fall back to the raw playlist
-  // id, which is meaningless to the user. If there's no name, hide the line.
+  // Set app-provided title as text, never as injected markup. Playlist context
+  // remains in the secondary line when present.
+  const headingEl = card.querySelector('.salasel-cw-heading');
+  if (headingEl && record.playlistName) headingEl.textContent = record.playlistName;
   const nameEl = card.querySelector('.salasel-cw-name');
-  if (nameEl) {
-    const name = (record.playlistName || '').trim();
-    if (name) {
-      nameEl.textContent = name;
-    } else {
-      nameEl.remove();
-    }
-  }
+  if (nameEl) nameEl.textContent = record.title;
 
   // Thumbnail fallback: sddefault → hqdefault.
   const img = card.querySelector('.salasel-cw-thumb');
@@ -417,7 +401,7 @@ async function applyContinueCard() {
       record = null;
     }
     // Empty state: nothing stored → show nothing extra.
-    if (!record || !record.resumeVideoId || !record.playlistId) return;
+    if (!record || !record.destination || !record.mediaId || !record.title) return;
 
     // When the homepage-feed toggle is on, the placeholder is the natural home
     // for the card (they group together, centered). Wait for whichever target

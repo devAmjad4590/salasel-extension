@@ -18,12 +18,19 @@ const STORAGE_KEYS = {
 /**
  * Key in chrome.storage.local holding the single "most recent" continue-watching
  * record bridged from salasel.app. Shape:
- *   { playlistId, playlistName, thumbnailId, resumeVideoId,
- *     completedVideoIds: string[], updatedAt: number }
+ *   { version: 1, kind, contentId, mediaId, playlistId?, playlistName?, title,
+ *     thumbnailId?, destination: 'https://salasel.app/...', playedAt }
  * Kept in `local` (not `sync`) because it is device-local browsing state, not a
  * user preference, and may update frequently.
  */
 const CONTINUE_WATCHING_KEY = 'continueWatching';
+const ACTIVITY_VERSION = 1;
+const ACTIVITY_MAX_FUTURE_MS = 5 * 60 * 1000;
+const SALASEL_ORIGIN = 'https://salasel.app';
+const ACTIVITY_LOCALES = new Set(['ar', 'en', 'ja']);
+const YOUTUBE_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
+const PODCAST_ID_PATTERN = /^pod_[A-Za-z0-9_-]+$/;
+const PLAYLIST_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 /**
  * Key in chrome.storage.local holding the per-video notes store — a map keyed by
@@ -108,23 +115,144 @@ function setPref(key, value) {
   return chrome.storage.sync.set({ [key]: value });
 }
 
-/**
- * Read the continue-watching record from chrome.storage.local.
- * Resolves to the stored record object, or null if none is set.
- * @returns {Promise<object|null>}
- */
-async function getContinueWatching() {
-  const out = await chrome.storage.local.get(CONTINUE_WATCHING_KEY);
-  return out[CONTINUE_WATCHING_KEY] || null;
+/** True for a non-empty display string. */
+function hasText(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+/** Returns a canonical relative route only when every identity matches its kind. */
+function getActivityRoute(record) {
+  if (!record || typeof record !== 'object' || !YOUTUBE_ID_PATTERN.test(record.mediaId || '')) return null;
+  if (record.kind === 'podcast' && PODCAST_ID_PATTERN.test(record.contentId || '')) return `/podcast/${record.contentId}/watch`;
+  if (record.kind === 'video' && record.contentId === record.mediaId) return `/video/${record.mediaId}`;
+  if (record.kind === 'playlist-video' && record.contentId === record.mediaId && PLAYLIST_ID_PATTERN.test(record.playlistId || '')) return `/playlist/${record.playlistId}/${record.mediaId}`;
+  return null;
+}
+
+/** Accept old podcast links exactly; normalize them to the current playback route. */
+function matchesActivityRoute(record, path, route) {
+  return path === route || (record.kind === 'podcast' && path === `/podcast/${record.contentId}`);
 }
 
 /**
- * Persist the continue-watching record to chrome.storage.local.
- * @param {object} record
- * @returns {Promise<void>}
+ * Validates app activity and creates the only URL the extension will open.
+ * `playedAt` remains the source playback time, never the bridge receipt time.
  */
-function setContinueWatching(record) {
-  return chrome.storage.local.set({ [CONTINUE_WATCHING_KEY]: record });
+function createContinueWatchingRecord(activity, now = Date.now()) {
+  if (!activity || typeof activity !== 'object' || activity.version !== ACTIVITY_VERSION ||
+      !['podcast', 'video', 'playlist-video'].includes(activity.kind) ||
+      !hasText(activity.contentId) || !hasText(activity.mediaId) || !hasText(activity.title) ||
+      typeof activity.playedAt !== 'number' || !Number.isFinite(activity.playedAt) || activity.playedAt < 0 ||
+      activity.playedAt > now + ACTIVITY_MAX_FUTURE_MS ||
+      (activity.thumbnailId !== undefined && (!hasText(activity.thumbnailId) || !YOUTUBE_ID_PATTERN.test(activity.thumbnailId)))) return null;
+
+  const route = getActivityRoute(activity);
+  const destination = activity.destination;
+  if (!route || typeof destination !== 'string') return null;
+  const locale = destination.split('/')[1];
+  if (!ACTIVITY_LOCALES.has(locale) || !matchesActivityRoute(activity, destination.slice(locale.length + 1), route)) return null;
+
+  return {
+    version: ACTIVITY_VERSION,
+    kind: activity.kind,
+    contentId: activity.contentId,
+    mediaId: activity.mediaId,
+    playlistId: activity.playlistId,
+    playlistName: hasText(activity.playlistName) ? activity.playlistName.trim() : undefined,
+    title: activity.title.trim(),
+    thumbnailId: activity.thumbnailId,
+    destination: `${SALASEL_ORIGIN}/${locale}${route}`,
+    playedAt: activity.playedAt,
+  };
+}
+
+/** Converts an old extension record only when it carries exact safe identities. */
+function migrateLegacyContinueWatching(record, now = Date.now()) {
+  if (!record || typeof record !== 'object' || !PLAYLIST_ID_PATTERN.test(record.playlistId || '') ||
+      !YOUTUBE_ID_PATTERN.test(record.resumeVideoId || '') ||
+      (record.thumbnailId !== undefined && !YOUTUBE_ID_PATTERN.test(record.thumbnailId || '')) ||
+      !Number.isFinite(record.updatedAt) || record.updatedAt < 0 || record.updatedAt > now + ACTIVITY_MAX_FUTURE_MS) return null;
+  const playedAt = record.updatedAt;
+  const title = hasText(record.playlistName) ? record.playlistName.trim() : 'Salasel playlist';
+  return {
+    version: ACTIVITY_VERSION,
+    kind: 'playlist-video',
+    contentId: record.resumeVideoId,
+    mediaId: record.resumeVideoId,
+    playlistId: record.playlistId,
+    playlistName: hasText(record.playlistName) ? record.playlistName.trim() : undefined,
+    title,
+    thumbnailId: YOUTUBE_ID_PATTERN.test(record.thumbnailId || '') ? record.thumbnailId : record.resumeVideoId,
+    destination: `${SALASEL_ORIGIN}/ar/playlist/${record.playlistId}/${record.resumeVideoId}`,
+    playedAt,
+  };
+}
+
+/** Validates storage before rendering; legacy data becomes a safe app destination. */
+function normalizeContinueWatching(record, now = Date.now()) {
+  if (!record || typeof record !== 'object') return null;
+  if (record.version !== ACTIVITY_VERSION) {
+    return Object.prototype.hasOwnProperty.call(record, 'version') ? null : migrateLegacyContinueWatching(record, now);
+  }
+  if (!['podcast', 'video', 'playlist-video'].includes(record.kind) ||
+      !hasText(record.contentId) || !hasText(record.mediaId) || !hasText(record.title) ||
+      typeof record.playedAt !== 'number' || !Number.isFinite(record.playedAt) || record.playedAt < 0 ||
+      record.playedAt > now + ACTIVITY_MAX_FUTURE_MS ||
+      (record.thumbnailId !== undefined && (!hasText(record.thumbnailId) || !YOUTUBE_ID_PATTERN.test(record.thumbnailId)))) return null;
+  const route = getActivityRoute(record);
+  if (!route || typeof record.destination !== 'string') return null;
+  const match = record.destination.match(/^https:\/\/salasel\.app\/(ar|en|ja)(\/.*)$/);
+  if (!match || !matchesActivityRoute(record, match[2], route)) return null;
+  return {
+    version: ACTIVITY_VERSION,
+    kind: record.kind,
+    contentId: record.contentId,
+    mediaId: record.mediaId,
+    playlistId: record.playlistId,
+    playlistName: hasText(record.playlistName) ? record.playlistName.trim() : undefined,
+    title: record.title.trim(),
+    thumbnailId: record.thumbnailId,
+    destination: `${SALASEL_ORIGIN}/${match[1]}${route}`,
+    playedAt: record.playedAt,
+  };
+}
+
+/** Read validated continue-watching data, never arbitrary local storage values. */
+async function getContinueWatching() {
+  const out = await chrome.storage.local.get(CONTINUE_WATCHING_KEY);
+  return normalizeContinueWatching(out[CONTINUE_WATCHING_KEY]);
+}
+
+/** Persist only a validated, trusted continue-watching record. */
+async function setContinueWatching(record) {
+  const normalized = normalizeContinueWatching(record);
+  if (!normalized) throw new Error('Invalid continue-watching record');
+  await chrome.storage.local.set({ [CONTINUE_WATCHING_KEY]: normalized });
+}
+
+/** Newer source activity wins; equal timestamps preserve the first record. */
+async function mergeContinueWatching(record) {
+  const candidate = normalizeContinueWatching(record);
+  if (!candidate) return null;
+  const existing = await getContinueWatching();
+  if (existing && candidate.playedAt <= existing.playedAt) return existing;
+  await setContinueWatching(candidate);
+  return candidate;
+}
+
+/** Sends writes through the single MV3 worker authority when one is available. */
+async function updateContinueWatching(record) {
+  const candidate = normalizeContinueWatching(record);
+  if (!candidate) return null;
+  if (typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.sendMessage === 'function') {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'salasel:continue-watching:update', record: candidate });
+      return normalizeContinueWatching(response && response.record);
+    } catch (_err) {
+      return null;
+    }
+  }
+  return mergeContinueWatching(candidate);
 }
 
 /**

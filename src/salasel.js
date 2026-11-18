@@ -2,21 +2,14 @@
  * salasel.js — content script injected into salasel.app pages only.
  *
  * Responsibilities:
- *  1. Read salasel.app's Zustand-persisted state from localStorage
- *     (`progress-storage`) and extract the single most-recent record:
- *     recentPlaylists[0] + that playlist's completedVideos array.
- *  2. Resolve playlist metadata (name, thumbnailId) and the playlist's ordered
- *     video list by fetching the public JSON the site already serves
- *     (same-origin, so no CORS issue and no host permission beyond salasel.app).
- *  3. Derive the resume video = first video in playlist order NOT marked complete
- *     (fallback: first video if all are complete or list is empty).
- *  4. Write a single self-contained record to chrome.storage.local so the YouTube
- *     content script can surface a "continue watching" card without any
- *     cross-origin fetch.
+ *  1. Read Salasel's persisted v1 playback activity from `progress-storage`.
+ *  2. Validate identities and canonical route through storage.js, then write a
+ *     trusted, self-contained Salasel destination to chrome.storage.local.
+ *  3. Fall back only to an exact legacy playlist/video record; never infer a
+ *     resume target from browsing history or fetch playlist data.
  *
- * Local-only: the only network request is to https://salasel.app/... public JSON.
- * Every localStorage/JSON access is guarded — on any error we fail silently and
- * leave the previously stored record untouched.
+ * Every localStorage/JSON access is guarded. Invalid activity leaves the newest
+ * previously accepted record untouched. Notes handoff remains independent.
  *
  * Depends on storage.js (getContinueWatching, setContinueWatching) being declared
  * first in the manifest content_scripts list for this match.
@@ -96,194 +89,49 @@ async function importNotesFromWebApp() {
   }
 }
 
-/**
- * Safely read and parse salasel.app's progress-storage localStorage entry.
- * @returns {{
- *   completedVideos: Record<string,string[]>,
- *   recentPlaylists: string[],
- *   lastWatched: {
- *     playlistId: string,
- *     videoId: string,
- *     playlistName?: string,
- *     thumbnailId?: string,
- *     updatedAt?: number
- *   } | null
- * } | null}
- */
+/** Safely read v1 activity plus an exact legacy record from persisted Zustand state. */
 function readProgressState() {
   try {
     const raw = window.localStorage.getItem(PROGRESS_STORAGE_KEY);
     if (!raw) return null;
-
     const parsed = JSON.parse(raw);
     const state = parsed && parsed.state;
     if (!state || typeof state !== 'object') return null;
-
-    const recentPlaylists = Array.isArray(state.recentPlaylists)
-      ? state.recentPlaylists
-      : [];
-    const completedVideos =
-      state.completedVideos && typeof state.completedVideos === 'object'
-        ? state.completedVideos
-        : {};
-
-    // The web app persists the exact playlist + video the user last opened,
-    // along with the human-readable playlist name (and optionally a thumbnail
-    // video id). Everything the card needs travels in this record — no fetch.
-    const lw = state.lastWatched;
-    const lastWatched =
-      lw &&
-      typeof lw === 'object' &&
-      typeof lw.playlistId === 'string' &&
-      lw.playlistId &&
-      typeof lw.videoId === 'string' &&
-      lw.videoId
-        ? lw
-        : null;
-
-    return { completedVideos, recentPlaylists, lastWatched };
-  } catch (_err) {
-    // Malformed JSON / storage access denied — fail silently.
-    return null;
-  }
-}
-
-/**
- * Fetch and parse JSON from a same-origin salasel.app path.
- * @param {string} path
- * @returns {Promise<any|null>}
- */
-async function fetchJson(path) {
-  try {
-    const res = await fetch(path, { credentials: 'omit' });
-    if (!res.ok) return null;
-    return await res.json();
+    return { latestActivity: state.latestActivity, lastWatched: state.lastWatched };
   } catch (_err) {
     return null;
   }
 }
 
-/**
- * Derive the resume video id for a playlist: the first video (in the playlist's
- * natural order) that is NOT in the completed set. Falls back to the first video
- * when every video is completed or the list is empty.
- * @param {Record<string, {id:string}>} videosObj — ordered video map from videos/<id>.json
- * @param {Set<string>} completedSet
- * @returns {string|null} resume video id, or null if there are no videos
- */
-function deriveResumeVideoId(videosObj, completedSet) {
-  const ids = Object.keys(videosObj || {});
-  if (ids.length === 0) return null;
-
-  for (const id of ids) {
-    if (!completedSet.has(id)) return id;
-  }
-  // All complete → fall back to the first video so the card still works.
-  return ids[0];
-}
-
-/**
- * Build (or refresh) the continue-watching record from current salasel.app state
- * and persist it to chrome.storage.local. No-op (silent) when there is no usable
- * recent playlist.
- */
-async function syncContinueWatching() {
-  const progress = readProgressState();
-  if (!progress) return;
-
-  // Prefer the exact playlist the user last opened. The web app records this on
-  // click; it's the source of truth for "what to resume." Fall back to the
-  // most-recent playlist list when lastWatched isn't available yet (e.g. the web
-  // app hasn't shipped its half, or the user's stored state predates the field).
-  const playlistId = progress.lastWatched
-    ? progress.lastWatched.playlistId
-    : progress.recentPlaylists[0];
-  if (!playlistId) return; // No recent activity yet → leave storage as-is.
-
-  const completedVideoIds = Array.isArray(progress.completedVideos[playlistId])
-    ? progress.completedVideos[playlistId]
-    : [];
-
-  // The exact video the user last clicked, when the web app provides it.
-  const clickedVideoId =
-    progress.lastWatched && progress.lastWatched.playlistId === playlistId
-      ? progress.lastWatched.videoId
-      : null;
-
-  // The human-readable playlist name the web app handed over (if any).
-  const incomingName =
-    progress.lastWatched &&
-    progress.lastWatched.playlistId === playlistId &&
-    typeof progress.lastWatched.playlistName === 'string'
-      ? progress.lastWatched.playlistName.trim()
-      : '';
-
-  // Skip redundant work: if we already stored this exact playlist + resume video
-  // + completed set AND the name hasn't newly arrived, there's nothing to do.
-  const existing = await getContinueWatching();
-  if (
-    existing &&
-    existing.playlistId === playlistId &&
-    (!clickedVideoId || existing.resumeVideoId === clickedVideoId) &&
-    sameMembers(existing.completedVideoIds, completedVideoIds) &&
-    (!incomingName || existing.playlistName === incomingName)
-  ) {
-    return;
-  }
-
-  // Resume target: the exact clicked video when known, otherwise derive it from
-  // the ordered video list (first not-yet-completed video, first as fallback).
-  let resumeVideoId = clickedVideoId;
-  if (!resumeVideoId) {
-    const videos = await fetchJson(`/videos/${encodeURIComponent(playlistId)}.json`);
-    const completedSet = new Set(completedVideoIds);
-    resumeVideoId = videos ? deriveResumeVideoId(videos, completedSet) : null;
-  }
-
-  // Without a resume target the card can't link anywhere — don't store a record.
-  if (!resumeVideoId) return;
-
-  // Playlist name + thumbnail come straight from the web app's lastWatched
-  // record — it already knows them at click time. No cross-referencing a JSON
-  // file that isn't keyed by native YouTube playlist ids. Preserve a previously
-  // stored name if the current record happens to omit it.
-  const lw = progress.lastWatched;
-  const playlistName =
-    incomingName ||
-    (existing && existing.playlistId === playlistId && existing.playlistName) ||
-    '';
-  const thumbnailId =
-    (lw && typeof lw.thumbnailId === 'string' && lw.thumbnailId)
-      ? lw.thumbnailId
-      : resumeVideoId;
-
-  const record = {
-    playlistId,
-    playlistName,
-    thumbnailId,
-    resumeVideoId,
-    completedVideoIds,
-    updatedAt: Date.now(),
+/** Converts only an exact legacy playlist/video observation into v1 activity. */
+function legacyActivity(lastWatched) {
+  if (!lastWatched || typeof lastWatched !== 'object' ||
+      !Number.isFinite(lastWatched.updatedAt) || lastWatched.updatedAt < 0) return null;
+  return {
+    version: 1,
+    kind: 'playlist-video',
+    contentId: lastWatched.videoId,
+    mediaId: lastWatched.videoId,
+    playlistId: lastWatched.playlistId,
+    playlistName: lastWatched.playlistName,
+    title: typeof lastWatched.playlistName === 'string' && lastWatched.playlistName.trim()
+      ? lastWatched.playlistName
+      : 'Salasel playlist',
+    thumbnailId: lastWatched.thumbnailId,
+    destination: `/ar/playlist/${lastWatched.playlistId}/${lastWatched.videoId}`,
+    playedAt: lastWatched.updatedAt,
   };
-
-  try {
-    await setContinueWatching(record);
-  } catch (_err) {
-    // Storage write failed — fail silently.
-  }
 }
 
-/**
- * Shallow set-equality for two id arrays (order-independent).
- * @param {string[]} a
- * @param {string[]} b
- * @returns {boolean}
- */
-function sameMembers(a, b) {
-  if (!Array.isArray(a) || !Array.isArray(b)) return false;
-  if (a.length !== b.length) return false;
-  const set = new Set(a);
-  return b.every((x) => set.has(x));
+/** The MV3 worker serializes cross-tab merges before writing chrome.storage.local. */
+function syncContinueWatching() {
+  const progress = readProgressState();
+  if (!progress) return Promise.resolve(null);
+  const candidate = createContinueWatchingRecord(progress.latestActivity) ||
+    createContinueWatchingRecord(legacyActivity(progress.lastWatched));
+  if (!candidate) return Promise.resolve(null);
+
+  return updateContinueWatching(candidate).catch(() => null);
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
