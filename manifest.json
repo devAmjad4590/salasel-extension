@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "Calm, intentional YouTube: hide distractions, take per-video notes, and resume your last Salasel playlist.",
   "permissions": ["storage"],
+  "background": { "service_worker": "src/background.js" },
   "host_permissions": [
     "*://*.youtube.com/*",
     "https://salasel.app/*",
